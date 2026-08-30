@@ -1,0 +1,1097 @@
+/*
+ * Call-audit console.
+ *
+ * Same design language as the renewal dashboard (../dashboard/web/src/styles/
+ * global.css): light lavender canvas, dark rounded nav rail, oversized soft cards
+ * in flat pastel blocks, pill controls, Plus Jakarta Sans with JetBrains Mono for
+ * every figure. Tokens are copied verbatim so the two apps stay in step; the
+ * audit-specific blocks live at the bottom under "Audit".
+ */
+
+:root {
+  color-scheme: light;
+
+  /* One spacing unit drives density. */
+  --unit: 4px;
+  --s1: calc(var(--unit) * 1);
+  --s2: calc(var(--unit) * 2);
+  --s3: calc(var(--unit) * 3);
+  --s4: calc(var(--unit) * 4);
+  --s5: calc(var(--unit) * 5);
+  --s6: calc(var(--unit) * 6);
+  --s8: calc(var(--unit) * 8);
+  --s12: calc(var(--unit) * 12);
+
+  --font-scale: 1;
+  --font-ui: "Plus Jakarta Sans", "Segoe UI", system-ui, sans-serif;
+  --font-data: "JetBrains Mono", ui-monospace, Consolas, monospace;
+
+  /*
+   * Transcripts are Devanagari and Tamil mixed with English. Plus Jakarta Sans
+   * covers none of the Indic ranges, so name the platform faces that do before
+   * falling back — otherwise the browser picks a last-resort face and the two
+   * scripts render at wildly different sizes.
+   */
+  --font-indic: "Plus Jakarta Sans", "Nirmala UI", "Noto Sans Devanagari", "Noto Sans Tamil", "Noto Sans",
+    "Latha", "Kohinoor Devanagari", "Tamil Sangam MN", system-ui, sans-serif;
+
+  --t-micro: calc(11px * var(--font-scale));
+  --t-small: calc(13px * var(--font-scale));
+  --t-body: calc(14px * var(--font-scale));
+  --t-lead: calc(17px * var(--font-scale));
+  --t-title: calc(20px * var(--font-scale));
+  --t-figure: calc(30px * var(--font-scale));
+  --t-hero: calc(34px * var(--font-scale));
+
+  /* Cards are deliberately very round; controls are full pills. */
+  --radius: 28px;
+  --radius-sm: 16px;
+  --radius-pill: 999px;
+
+  --paper: #faf9fe;
+  --surface: #ffffff;
+  --surface-2: #f4f3f8;
+  --surface-3: #eeedf2;
+  --rule: #e3e2e7;
+  --rule-strong: #c8c5cb;
+  --ink: #1a1c1f;
+  --ink-2: #47464b;
+  --ink-3: #6e6c74;
+
+  --nav-bg: #1b1b20;
+  --nav-ink: #f1f0f5;
+  --nav-ink-dim: #9c9aa3;
+
+  --accent: #f3dd6d;
+  --accent-ink: #1a1c1f;
+  --accent-wash: color-mix(in srgb, var(--accent) 28%, transparent);
+
+  /* Flat pastel card blocks. */
+  --tone-yellow: #f3dd6d;
+  --tone-pink: #f8cbdf;
+  --tone-sage: #cbe08d;
+  --tone-sky: #bbd6f6;
+  --tone-lilac: #dacdf1;
+  --tone-ink: #1a1c1f;
+
+  --good: #0b6e67;
+  --warn: #8a6100;
+  --bad: #ba1a1a;
+
+  /* A call nobody could audit is not a bad call — it gets the neutral tone the
+     dashboard reserves for "never attempted", never the fail red. */
+  --absent: #6e6b65;
+
+  --shadow-pop: 0 8px 40px -12px rgb(26 28 31 / 0.28);
+  --focus: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-size: var(--t-body);
+  line-height: 1.5;
+  background: var(--paper);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+  border-radius: var(--radius-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ---------- Primitives ---------- */
+
+.figure {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.eyebrow {
+  font-size: var(--t-micro);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.muted {
+  color: var(--ink-3);
+}
+
+/* A genuinely null field. Distinct from zero, and it says so out loud. */
+.nul {
+  color: var(--ink-3);
+  font-style: italic;
+  font-family: var(--font-ui);
+  letter-spacing: 0;
+}
+
+/* ---------- Shell ---------- */
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+@media (max-width: 1080px) {
+  .app-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace {
+  padding: var(--s5) var(--s6) var(--s8);
+  min-width: 0;
+}
+
+@media (max-width: 1080px) {
+  .workspace {
+    padding: var(--s4);
+  }
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  z-index: 100;
+}
+
+.skip-link:focus {
+  left: var(--s4);
+  top: var(--s4);
+  padding: var(--s2) var(--s4);
+  background: var(--surface);
+  border-radius: var(--radius-pill);
+}
+
+/* ---------- Nav sidebar ---------- */
+
+.nav {
+  background: var(--nav-bg);
+  color: var(--nav-ink);
+  padding: var(--s8) var(--s6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s6);
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+@media (max-width: 1080px) {
+  .nav {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    height: auto;
+    width: min(280px, 86vw);
+    z-index: 60;
+    transform: translateX(-100%);
+    transition: transform 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  .nav.open {
+    transform: translateX(0);
+  }
+}
+
+.brand {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.brand-title {
+  font-size: var(--t-title);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.brand-sub {
+  font-size: var(--t-micro);
+  color: var(--nav-ink-dim);
+}
+
+.nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+
+.nav-group-label {
+  font-size: var(--t-micro);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--nav-ink-dim);
+  padding: 0 var(--s3) var(--s2);
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s3) var(--s3);
+  border-radius: var(--radius-pill);
+  border: none;
+  background: none;
+  color: var(--nav-ink-dim);
+  font-size: var(--t-small);
+  font-weight: 500;
+  text-align: left;
+  width: 100%;
+  transition: color 0.14s ease, background 0.14s ease;
+}
+
+.nav-item:hover {
+  color: var(--nav-ink);
+  background: rgb(255 255 255 / 0.06);
+}
+
+.nav-item.active {
+  color: var(--nav-ink);
+  font-weight: 650;
+  background: rgb(255 255 255 / 0.09);
+}
+
+.nav-item.active::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-left: auto;
+}
+
+.nav-foot {
+  margin-top: auto;
+}
+
+.nav-meta {
+  font-size: var(--t-micro);
+  color: var(--nav-ink-dim);
+  padding: 0 var(--s3);
+  display: grid;
+  gap: 2px;
+}
+
+/* ---------- Top bar ---------- */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  padding: var(--s4) var(--s6);
+  background: color-mix(in srgb, var(--paper) 90%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+@media (max-width: 1080px) {
+  .topbar {
+    padding: var(--s3) var(--s4);
+  }
+}
+
+.nav-toggle {
+  display: none;
+}
+
+@media (max-width: 1080px) {
+  .nav-toggle {
+    display: inline-flex;
+  }
+}
+
+.topbar-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+
+.sync-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: var(--t-micro);
+  color: var(--ink-3);
+  line-height: 1.25;
+}
+
+.sync-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--good);
+  flex: none;
+}
+
+.sync-dot.stale {
+  background: var(--warn);
+}
+
+/* Fixtures must never pass for an audit. Loud, sticky, and it names itself. */
+.mock-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s6);
+  font-size: var(--t-micro);
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--accent);
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+}
+
+@media (max-width: 1080px) {
+  .mock-banner {
+    padding: var(--s2) var(--s4);
+  }
+}
+
+/* ---------- Buttons ---------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s4);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--rule);
+  background: var(--surface);
+  font-size: var(--t-small);
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--rule-strong);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--ink-2);
+  border-color: var(--ink-2);
+}
+
+.btn-ghost {
+  border-color: transparent;
+  background: none;
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: transparent;
+}
+
+.btn-icon {
+  padding: var(--s2);
+  width: 34px;
+  height: 34px;
+}
+
+/* ---------- Cards ---------- */
+
+.card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: var(--s6);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+
+.card.tone-yellow {
+  background: var(--tone-yellow);
+}
+.card.tone-pink {
+  background: var(--tone-pink);
+}
+.card.tone-sage {
+  background: var(--tone-sage);
+}
+.card.tone-sky {
+  background: var(--tone-sky);
+}
+.card.tone-lilac {
+  background: var(--tone-lilac);
+}
+
+.card[class*="tone-"] {
+  color: var(--tone-ink);
+}
+
+.card[class*="tone-"] .card-sub,
+.card[class*="tone-"] .eyebrow,
+.card[class*="tone-"] .metric-label,
+.card[class*="tone-"] .metric-note {
+  color: color-mix(in srgb, var(--tone-ink) 62%, transparent);
+}
+
+.card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s4);
+  flex-wrap: wrap;
+}
+
+.card-head > :first-child {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.card-title {
+  margin: 0;
+  font-size: var(--t-lead);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.card-sub {
+  font-size: var(--t-small);
+  color: var(--ink-3);
+  margin-top: 2px;
+}
+
+.card-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex: 0 1 auto;
+  min-width: 0;
+  justify-content: flex-end;
+}
+
+.inset {
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  padding: var(--s4);
+  min-width: 0;
+}
+
+.card:not([class*="tone-"]) .inset {
+  background: var(--surface-2);
+}
+
+/* ---------- Page header ---------- */
+
+.page-head {
+  padding: 0 var(--s6);
+}
+
+@media (max-width: 1080px) {
+  .page-head {
+    padding: 0 var(--s4);
+  }
+}
+
+.page-head h1 {
+  margin: 0;
+  font-size: var(--t-hero);
+  font-weight: 700;
+  letter-spacing: -0.035em;
+}
+
+.page-head p {
+  margin: var(--s1) 0 0;
+  color: var(--ink-3);
+  font-size: var(--t-small);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s4);
+  align-content: start;
+}
+
+@media (max-width: 900px) {
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.span-full {
+  grid-column: 1 / -1;
+}
+
+/* ---------- Metrics ---------- */
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: var(--s3) var(--s5);
+}
+
+.metric {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.metric-label {
+  font-size: var(--t-micro);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.metric-value {
+  font-size: var(--t-figure);
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+.metric-note {
+  font-size: var(--t-micro);
+  color: var(--ink-3);
+}
+
+/* The verdict split as one bar, the way the dashboard draws its funnel. */
+.split-bar {
+  display: flex;
+  height: 30px;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  background: color-mix(in srgb, var(--tone-ink) 10%, transparent);
+}
+
+.split-seg {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--s3);
+  min-width: 0;
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  color: #fff;
+  transition: flex-grow 0.45s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.split-seg.pass {
+  background: var(--good);
+}
+.split-seg.warn {
+  background: var(--warn);
+}
+.split-seg.fail {
+  background: var(--bad);
+}
+.split-seg.no_transcript {
+  background: var(--absent);
+}
+
+/* ---------- Tables ---------- */
+
+.table-wrap {
+  overflow-x: auto;
+  min-width: 0;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-small);
+}
+
+.data-table th {
+  text-align: left;
+  font-size: var(--t-micro);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  padding: var(--s2) var(--s3);
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+}
+
+.data-table td {
+  padding: var(--s3);
+  border-top: 1px solid var(--rule);
+  white-space: nowrap;
+}
+
+.data-table td:not(.figure):not(.num) {
+  white-space: normal;
+  max-width: 22ch;
+  overflow-wrap: anywhere;
+}
+
+.data-table tbody tr:hover {
+  background: var(--surface-2);
+}
+
+.data-table .num {
+  text-align: right;
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+}
+
+.data-table tr.total-row td {
+  font-weight: 700;
+  border-top: 2px solid var(--rule-strong);
+  background: var(--surface-2);
+}
+
+/* ---------- Pills / statuses ---------- */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px var(--s3);
+  border-radius: var(--radius-pill);
+  font-size: var(--t-micro);
+  font-weight: 600;
+}
+
+.pill::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.pill.pass {
+  color: var(--good);
+  background: color-mix(in srgb, var(--good) 14%, transparent);
+}
+
+.pill.warn {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+}
+
+.pill.fail {
+  color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 14%, transparent);
+}
+
+.pill.no_transcript {
+  color: var(--absent);
+  background: var(--surface-2);
+}
+
+.tag {
+  display: inline-block;
+  padding: 1px var(--s2);
+  border-radius: var(--radius-pill);
+  font-size: var(--t-micro);
+  font-weight: 600;
+  background: var(--surface-2);
+  color: var(--ink-2);
+}
+
+/* Where a verdict came from. A 4B model's opinion must never read as a
+   measurement, so `rule` and `llm` are visibly different objects. */
+.src {
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px var(--s2);
+  border-radius: var(--radius-pill);
+}
+
+.src.rule {
+  color: var(--ink);
+  background: var(--surface-3);
+}
+
+.src.llm {
+  color: var(--warn);
+  background: transparent;
+  border: 1px dashed color-mix(in srgb, var(--warn) 55%, transparent);
+}
+
+/* ---------- Controls ---------- */
+
+.toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s3);
+  flex-wrap: wrap;
+}
+
+.field {
+  display: grid;
+  gap: var(--s1);
+  min-width: 0;
+}
+
+.field > label {
+  font-size: var(--t-micro);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.text-input,
+.select-input {
+  padding: var(--s2) var(--s4);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--rule);
+  background: var(--surface);
+  min-width: 0;
+  font-size: var(--t-small);
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  font-size: var(--t-small);
+  color: var(--ink-3);
+}
+
+.pager .spacer {
+  margin-left: auto;
+}
+
+/* ---------- States ---------- */
+
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 37%, var(--surface-2) 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.3s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+
+.empty-state,
+.error-state {
+  padding: var(--s8) var(--s5);
+  text-align: center;
+  color: var(--ink-3);
+  font-size: var(--t-small);
+  display: grid;
+  gap: var(--s2);
+  justify-items: center;
+}
+
+.empty-state strong {
+  color: var(--ink);
+  font-size: var(--t-body);
+}
+
+.error-state {
+  color: var(--bad);
+}
+
+/* ---------- Transcript ---------- */
+
+.transcript {
+  display: grid;
+  gap: var(--s3);
+  scroll-behavior: smooth;
+}
+
+.turn {
+  display: grid;
+  gap: 2px;
+  padding: var(--s3) var(--s4);
+  border-radius: var(--radius-sm);
+  max-width: 92%;
+  scroll-margin: var(--s6);
+}
+
+.turn-assistant {
+  background: var(--surface-2);
+  justify-self: start;
+  border-bottom-left-radius: 4px;
+}
+
+.turn-user {
+  background: color-mix(in srgb, var(--good) 13%, transparent);
+  justify-self: end;
+  border-bottom-right-radius: 4px;
+}
+
+.turn-role {
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  display: flex;
+  gap: var(--s2);
+}
+
+.turn-text {
+  margin: 0;
+  font-family: var(--font-indic);
+  font-size: var(--t-small);
+  line-height: 1.75;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The evidence link landing. Ring rather than fill, so the words stay legible. */
+.turn.cited {
+  box-shadow: 0 0 0 2px var(--accent), 0 0 0 4px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.turn:focus-visible {
+  box-shadow: var(--focus);
+}
+
+/* ==========================================================================
+   Audit
+   ========================================================================== */
+
+/* Transcript left, verdicts right. Both scroll in their own pane so a citation
+   can be checked against the words without losing the verdict list. */
+.detail-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 460px);
+  gap: var(--s4);
+  align-items: start;
+}
+
+@media (max-width: 1180px) {
+  .detail-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.pane-scroll {
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+  padding-right: var(--s2);
+}
+
+@media (max-width: 1180px) {
+  .pane-scroll {
+    max-height: none;
+  }
+}
+
+/* A verdict row is a button: the whole row navigates to its turn. */
+.verdict-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--s1) var(--s3);
+  width: 100%;
+  text-align: left;
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--rule);
+  border-left: 4px solid var(--rule-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font: inherit;
+}
+
+.verdict-row:hover {
+  background: var(--surface-2);
+}
+
+.verdict-row[disabled] {
+  cursor: default;
+  opacity: 1;
+}
+
+.verdict-row.pass {
+  border-left-color: var(--good);
+}
+.verdict-row.warn {
+  border-left-color: var(--warn);
+}
+.verdict-row.fail {
+  border-left-color: var(--bad);
+}
+.verdict-row.no_transcript {
+  border-left-color: var(--absent);
+}
+
+.verdict-name {
+  font-family: var(--font-data);
+  font-size: var(--t-small);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.verdict-meta {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  font-size: var(--t-micro);
+  color: var(--ink-3);
+}
+
+.verdict-list {
+  display: grid;
+  gap: var(--s2);
+}
+
+/* expected vs found, side by side — the whole compliance question in one row. */
+.kv {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px var(--s3);
+  font-size: var(--t-micro);
+  grid-column: 1 / -1;
+}
+
+.kv dt {
+  color: var(--ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+
+.kv dd {
+  margin: 0;
+  font-family: var(--font-indic);
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.kv dd.expected {
+  font-family: var(--font-data);
+  color: var(--ink);
+}
+
+/* Accuracy read as a bar, worst first — the point of the overview. */
+.bar {
+  position: relative;
+  min-width: 90px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.bar > span {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--good);
+}
+
+.bar.warn > span {
+  background: var(--warn);
+}
+.bar.bad > span {
+  background: var(--bad);
+}
+
+/* The worst variables are the reason an operator opens this screen. */
+tr.worst td {
+  background: color-mix(in srgb, var(--bad) 7%, transparent);
+}
+
+tr.worst:hover td {
+  background: color-mix(in srgb, var(--bad) 12%, transparent);
+}
+
+tr.worst .var-name {
+  font-weight: 700;
+}
+
+.var-name {
+  font-family: var(--font-data);
+  font-size: var(--t-small);
+}
+
+.flags {
+  display: flex;
+  gap: var(--s1);
+  flex-wrap: wrap;
+}

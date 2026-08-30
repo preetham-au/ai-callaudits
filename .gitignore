@@ -1,0 +1,21 @@
+# Credentials. .env carries the Metabase service key and the Qwen key.
+.env
+.env.*
+!.env.example
+
+# Audit output. Rebuilt from Metabase by `python -m audit.run`, and it holds
+# customer transcripts — policy numbers, names, phone numbers.
+data/
+*.db
+
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# Node
+node_modules/
+dist/

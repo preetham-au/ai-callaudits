@@ -1,0 +1,9 @@
+# Authored on Windows, deployed to Linux. Without this the blobs go in as CRLF
+# and every file reads as modified in a server checkout, which makes `git pull`
+# useless as an update path — exactly what happened to the redial repo.
+* text=auto eol=lf
+
+*.png binary
+*.woff binary
+*.woff2 binary
+*.db binary

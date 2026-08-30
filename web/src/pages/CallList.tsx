@@ -1,0 +1,188 @@
+import { useState } from "react";
+import { Download } from "lucide-react";
+import { API_BASE, useResource } from "../api/client";
+import type { CallsPage } from "../api/types";
+import { ErrorState, LoadingBlock, Section, VerdictPill, clockIst, num, score, text } from "../components/common";
+import { href } from "../route";
+
+const PAGE_SIZE = 50;
+
+function query(filters: { agent: string; verdict: string; q: string }, page?: number): string {
+  const p = new URLSearchParams();
+  if (filters.agent) p.set("agent_id", filters.agent);
+  if (filters.verdict) p.set("verdict", filters.verdict);
+  if (filters.q) p.set("q", filters.q);
+  if (page !== undefined) {
+    p.set("page", String(page));
+    p.set("page_size", String(PAGE_SIZE));
+  }
+  return p.toString();
+}
+
+export function CallListPage() {
+  const [agent, setAgent] = useState("");
+  const [verdict, setVerdict] = useState("");
+  const [q, setQ] = useState("");
+  // Typing is not searching: the box only takes effect on submit, so every
+  // keystroke does not fire a request against 687 rows.
+  const [applied, setApplied] = useState("");
+  const [page, setPage] = useState(1);
+
+  const filters = { agent, verdict, q: applied };
+  const { data, error, loading } = useResource<CallsPage>(`/calls?${query(filters, page)}`);
+  const pages = data ? Math.max(1, Math.ceil(data.total / data.page_size)) : 1;
+
+  function change(set: (v: string) => void) {
+    return (e: React.ChangeEvent<HTMLSelectElement>) => {
+      set(e.target.value);
+      setPage(1);
+    };
+  }
+
+  return (
+    <>
+      <div className="page-head">
+        <h1>Calls</h1>
+        <p>{data ? `${data.total} calls match` : "Loading calls"}</p>
+      </div>
+
+      <div className="workspace">
+        <Section
+          title="Audited calls"
+          subtitle="Open a call to check every verdict against the words that were said."
+          actions={
+            /* Server-rendered, in the operator's existing sheet format. Nothing is
+               assembled here — the CSV is the API's job, not the browser's. */
+            <a className="btn" href={`${API_BASE}/export.csv?${query(filters)}`} download>
+              <Download size={14} aria-hidden /> Download CSV
+            </a>
+          }
+        >
+          <form
+            className="toolbar"
+            onSubmit={(e) => {
+              e.preventDefault();
+              setApplied(q.trim());
+              setPage(1);
+            }}
+          >
+            <div className="field">
+              <label htmlFor="f-agent">Agent</label>
+              <select id="f-agent" className="select-input" value={agent} onChange={change(setAgent)}>
+                <option value="">All agents</option>
+                <option value="125">125 · Hindi</option>
+                <option value="127">127 · Tamil</option>
+              </select>
+            </div>
+
+            <div className="field">
+              <label htmlFor="f-verdict">Verdict</label>
+              <select id="f-verdict" className="select-input" value={verdict} onChange={change(setVerdict)}>
+                <option value="">All verdicts</option>
+                <option value="pass">Pass</option>
+                <option value="warn">Warn</option>
+                <option value="fail">Fail</option>
+                <option value="no_transcript">Not audited</option>
+              </select>
+            </div>
+
+            <div className="field" style={{ flex: "1 1 260px" }}>
+              <label htmlFor="f-q">Search</label>
+              <input
+                id="f-q"
+                className="text-input"
+                type="search"
+                placeholder="Reg no, policy no, customer or call id"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+              />
+            </div>
+
+            <button type="submit" className="btn btn-primary">
+              Search
+            </button>
+          </form>
+
+          {error ? <ErrorState error={error} /> : null}
+          {loading || !data ? (
+            <LoadingBlock rows={8} />
+          ) : data.items.length === 0 ? (
+            <div className="empty-state">
+              <strong>No calls match these filters</strong>
+              Clear the search or pick a different verdict.
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table className="data-table">
+                <caption className="sr-only">Audited calls, most recent filters applied</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Call</th>
+                    <th scope="col">Time</th>
+                    <th scope="col">Customer</th>
+                    <th scope="col">Reg no</th>
+                    <th scope="col" className="num">Turns</th>
+                    <th scope="col" className="num">Score</th>
+                    <th scope="col">Verdict</th>
+                    <th scope="col">Disposition</th>
+                    <th scope="col" className="num">Vars failed</th>
+                    <th scope="col">Verfication Error</th>
+                    <th scope="col">Dispostion Error</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.items.map((c) => (
+                    <tr key={c.interaction_id}>
+                      <th scope="row" className="figure" style={{ textAlign: "left" }}>
+                        <a href={href({ name: "call", id: c.interaction_id })}>{c.interaction_id}</a>
+                        <div className="metric-note">{c.agent_id === 127 ? "Tamil" : "Hindi"}</div>
+                      </th>
+                      <td className="figure">{clockIst(c.started_at)}</td>
+                      <td>{text(c.customer_name)}</td>
+                      <td className="figure">{text(c.reg_no)}</td>
+                      <td className="num">{num(c.turns)}</td>
+                      <td className="num">{score(c.score)}</td>
+                      <td>
+                        <VerdictPill verdict={c.verdict} />
+                      </td>
+                      <td>
+                        <div className="figure" style={{ fontSize: "var(--t-micro)" }}>
+                          {text(c.disposition)}
+                        </div>
+                        <VerdictPill verdict={c.disposition_verdict} />
+                      </td>
+                      <td className="num">
+                        {c.variables_failed > 0 ? (
+                          <strong>{c.variables_failed}</strong>
+                        ) : (
+                          num(c.variables_failed)
+                        )}
+                      </td>
+                      {/* The reviewers' own phrasing, misspellings included, so this
+                          reads the same as the sheet they already work in. */}
+                      <td>{text(c.verification_error)}</td>
+                      <td>{text(c.disposition_error)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="pager">
+            <span>
+              Page {data?.page ?? page} of {pages}
+            </span>
+            <span className="spacer" />
+            <button type="button" className="btn" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+              Previous
+            </button>
+            <button type="button" className="btn" disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>
+              Next
+            </button>
+          </div>
+        </Section>
+      </div>
+    </>
+  );
+}
