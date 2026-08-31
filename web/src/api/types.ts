@@ -7,8 +7,46 @@ export type CallVerdict = Verdict | "no_transcript";
 export interface Health {
   ok: boolean;
   model: string;
+  /** The newest day audited, not the deploy-time .env date. */
   audit_date: string;
   calls_audited: number;
+  running_job: Job | null;
+}
+
+/** One attempt at running an audit — the trigger, not the audit's findings. */
+export type JobStatus = "running" | "done" | "failed" | "cancelled" | "interrupted";
+
+export interface Job {
+  id: number;
+  audit_date: string;
+  trigger: "manual" | "schedule";
+  status: JobStatus;
+  started_at: string | null;
+  finished_at: string | null;
+  exit_code: number | null;
+  pid: number | null;
+  duration_s: number | null;
+  /** Tail of the run's stdout. Only on GET /jobs/{id}. */
+  log?: string;
+}
+
+export interface JobsPage {
+  items: Job[];
+  running: Job | null;
+  /** Yesterday in IST — the sensible default for a hand-started run. */
+  default_date: string;
+}
+
+export interface Schedule {
+  enabled: boolean;
+  /** HH:MM, 24-hour, in `timezone`. */
+  time: string;
+  /** Whose calls a nightly run audits: the day it fires, or the one before. */
+  target: "today" | "yesterday";
+  timezone: string;
+  last_fired: string | null;
+  next_run: string | null;
+  next_target_date: string | null;
 }
 
 export interface Totals {

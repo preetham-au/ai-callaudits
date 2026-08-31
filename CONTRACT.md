@@ -186,7 +186,52 @@ GET /api/export.csv?date=&agent_id=&verdict=
 
 GET /api/runs   -> [{"id": int, "audit_date": str, "started_at": str,
                      "finished_at": str|null, "calls": int, "model": str}]
+
+GET /api/dates  -> [{"date": str, "calls": int, "audited": int}]  newest first
 ```
+
+`date` is optional everywhere it appears. Omitted, it means **the newest day
+that has been audited**, not the deploy-time `AUDIT_DATE`: once the nightly
+schedule is on, that env value is frozen at whatever day the service was
+installed and every screen would keep showing it while fresh audits piled up
+behind it.
+
+### Triggering audits
+
+A *run* is what `audit.run` recorded; a *job* is one attempt at starting it.
+They are separate because a job can fail before there is anything to record.
+
+```
+GET  /api/jobs?limit=       -> {"items": [Job], "running": Job|null,
+                                "default_date": str}   # yesterday, in IST
+POST /api/jobs {"date": str|null}  -> 201 Job
+                                      409 if one is already running
+                                      422 if the date is not YYYY-MM-DD
+GET  /api/jobs/{id}?tail=   -> Job + {"log": str}   # tail of the run's stdout
+POST /api/jobs/{id}/cancel  -> Job
+
+GET  /api/schedule          -> Schedule
+PUT  /api/schedule {"enabled": bool, "time": "HH:MM", "target": str} -> Schedule
+
+Job      = {"id": int, "audit_date": str, "trigger": "manual"|"schedule",
+            "status": "running"|"done"|"failed"|"cancelled"|"interrupted",
+            "started_at": str|null, "finished_at": str|null,
+            "exit_code": int|null, "pid": int|null, "duration_s": int|null}
+Schedule = {"enabled": bool, "time": "HH:MM", "target": "today"|"yesterday",
+            "timezone": "Asia/Kolkata", "last_fired": str|null,
+            "next_run": str|null, "next_target_date": str|null}
+```
+
+- **One job at a time.** Two audits of the same day would overwrite each
+  other's rows in `calls`, so a second start is a 409, not a queue.
+- **All times are IST.** The VM's clock is UTC; "last night" and "today's
+  calls" only mean anything in the timezone the calls were dialled in.
+- `target` picks whose calls a nightly run audits — the day it fires
+  (`23:30` covering that evening) or the day before (`02:00` covering it).
+- `interrupted` means the service restarted under a running job. It is not an
+  audit failure and must not be coloured like one.
+- The date is validated against `^\d{4}-\d{2}-\d{2}$` before it goes anywhere:
+  `fetch_day` interpolates it straight into SQL.
 
 `turn_index` indexes into `transcript`, so the UI can scroll to and highlight
 the exact turn a verdict came from. That link is the point of the whole

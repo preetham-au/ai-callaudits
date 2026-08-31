@@ -1,15 +1,17 @@
 import { useEffect, useState } from "react";
-import { LayoutDashboard, ListChecks, Menu } from "lucide-react";
+import { LayoutDashboard, ListChecks, Menu, PlayCircle } from "lucide-react";
 import { MOCK_EVENT, isMocking, useResource } from "./api/client";
 import type { Health } from "./api/types";
 import { href, useRoute, type Route } from "./route";
 import { CallDetailPage } from "./pages/CallDetail";
 import { CallListPage } from "./pages/CallList";
 import { OverviewPage } from "./pages/Overview";
+import { RunsPage } from "./pages/Runs";
 
 const NAV: Array<{ route: Route; label: string; icon: typeof LayoutDashboard }> = [
   { route: { name: "overview" }, label: "Overview", icon: LayoutDashboard },
   { route: { name: "calls" }, label: "Calls", icon: ListChecks },
+  { route: { name: "runs" }, label: "Runs", icon: PlayCircle },
 ];
 
 export default function App() {
@@ -26,7 +28,8 @@ export default function App() {
 
   useEffect(() => setNavOpen(false), [route]);
 
-  const active = route.name === "overview" ? "overview" : "calls";
+  // A call detail is still "Calls" as far as the rail is concerned.
+  const active = route.name === "call" ? "calls" : route.name;
 
   return (
     <div className="app-shell">
@@ -92,6 +95,7 @@ export default function App() {
           {route.name === "overview" ? <OverviewPage /> : null}
           {route.name === "calls" ? <CallListPage /> : null}
           {route.name === "call" ? <CallDetailPage id={route.id} /> : null}
+          {route.name === "runs" ? <RunsPage /> : null}
         </main>
       </div>
     </div>

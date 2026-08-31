@@ -1095,3 +1095,46 @@ tr.worst .var-name {
   gap: var(--s1);
   flex-wrap: wrap;
 }
+
+/* ---------- Runs ---------- */
+
+/*
+ * A checkbox sitting in a `.field` next to pill-shaped inputs. Given the same
+ * height and border so the row does not step up and down, but left as a real
+ * checkbox — a fake toggle would lose the keyboard and screen-reader behaviour
+ * for no gain but a nicer shape.
+ */
+.check-row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s4);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  font-size: var(--t-body);
+  cursor: pointer;
+}
+
+.check-row input {
+  accent-color: var(--ink);
+  width: 15px;
+  height: 15px;
+}
+
+/* Run output, as the process wrote it: fixed width, its own scroll, no wrapping
+   of the progress lines that arrive one per judged chunk. */
+.log-pane {
+  margin: var(--s3) 0 0;
+  padding: var(--s4);
+  max-height: 320px;
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+  color: var(--ink-2);
+  font-family: var(--font-data);
+  font-size: var(--t-micro);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

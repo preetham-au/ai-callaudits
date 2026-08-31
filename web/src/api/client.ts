@@ -43,6 +43,31 @@ export async function get<T>(path: string, signal?: AbortSignal): Promise<{ data
   }
 }
 
+/**
+ * A write. Never falls back to fixtures — pretending a run started when the API
+ * is unreachable is the one lie this app cannot afford.
+ */
+export async function send<T>(path: string, method: "POST" | "PUT", body?: unknown): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers: { accept: "application/json", "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!res.ok) {
+    /* FastAPI puts the reason in `detail`. Showing "HTTP 409" instead would hide
+       "an audit is already running", which is the only thing worth saying. */
+    let message = `HTTP ${res.status}`;
+    try {
+      const body = (await res.json()) as { detail?: unknown };
+      if (typeof body.detail === "string") message = body.detail;
+    } catch {
+      /* no JSON body; the status line is all we have */
+    }
+    throw new Error(message);
+  }
+  return (await res.json()) as T;
+}
+
 export interface Resource<T> {
   data: T | null;
   error: Error | null;
@@ -50,8 +75,12 @@ export interface Resource<T> {
   mock: boolean;
 }
 
-/** One GET, re-run whenever `path` changes. Null path means "nothing to fetch". */
-export function useResource<T>(path: string | null): Resource<T> {
+/**
+ * One GET, re-run whenever `path` or `reloadKey` changes. Null path means
+ * "nothing to fetch"; `reloadKey` is how the runs page polls a live job without
+ * putting a cache-buster in the URL.
+ */
+export function useResource<T>(path: string | null, reloadKey: unknown = 0): Resource<T> {
   const [state, setState] = useState<Resource<T>>({ data: null, error: null, loading: path !== null, mock: false });
 
   useEffect(() => {
@@ -68,7 +97,7 @@ export function useResource<T>(path: string | null): Resource<T> {
         setState({ data: null, error: e instanceof Error ? e : new Error(String(e)), loading: false, mock: false });
       });
     return () => ac.abort();
-  }, [path]);
+  }, [path, reloadKey]);
 
   return state;
 }

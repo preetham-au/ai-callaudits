@@ -9,15 +9,25 @@ import io
 import json
 import sqlite3
 from collections import defaultdict
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, Response
+from pydantic import BaseModel
 
+from api import jobs as JOBS
 from audit.data import AUDIT_DATE, ROOT
 from audit.judge import MODEL, TRANSCRIPT_BUDGET, est_tokens
 from audit.run import DB
 
-app = FastAPI(title="Chola call audits")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    JOBS.startup()
+    yield
+
+
+app = FastAPI(title="Chola call audits", lifespan=lifespan)
 WEB = ROOT / "web" / "dist"
 
 AGENTS = {125: ("Simran", "Hindi"), 127: ("Aarthi", "Tamil")}
@@ -59,15 +69,36 @@ def _filters(date, agent_id, verdict, text):
     return " AND ".join(where), args
 
 
+def latest_date() -> str:
+    """The newest day that has been audited.
+
+    Not AUDIT_DATE: once the nightly schedule is on, the .env date is frozen at
+    whatever day the service was deployed and every screen would keep showing it
+    while fresh audits piled up behind it.
+    """
+    r = q("SELECT MAX(audit_date) d FROM calls")
+    return (r[0]["d"] if r and r[0]["d"] else None) or AUDIT_DATE
+
+
 @app.get("/api/health")
 def health():
-    n = q("SELECT COUNT(*) c FROM calls WHERE audit_date = ?", (AUDIT_DATE,))
-    return {"ok": True, "model": MODEL, "audit_date": AUDIT_DATE,
-            "calls_audited": n[0]["c"] if n else 0}
+    date = latest_date()
+    n = q("SELECT COUNT(*) c FROM calls WHERE audit_date = ?", (date,))
+    return {"ok": True, "model": MODEL, "audit_date": date,
+            "calls_audited": n[0]["c"] if n else 0,
+            "running_job": JOBS.current()}
+
+
+@app.get("/api/dates")
+def dates():
+    return q("SELECT audit_date AS date, COUNT(*) AS calls, "
+             "SUM(verdict != 'no_transcript') AS audited "
+             "FROM calls GROUP BY audit_date ORDER BY audit_date DESC")
 
 
 @app.get("/api/summary")
-def summary(date: str = AUDIT_DATE):
+def summary(date: str | None = None):
+    date = date or latest_date()
     rows = q(f"SELECT {LIST_COLS} FROM calls WHERE audit_date = ?", (date,))
     det = q("SELECT variables, flow FROM calls WHERE audit_date = ? AND turns > 0", (date,))
     aud = [r for r in rows if r["verdict"] != "no_transcript"]
@@ -129,9 +160,9 @@ def summary(date: str = AUDIT_DATE):
 
 
 @app.get("/api/calls")
-def calls(date: str = AUDIT_DATE, agent_id: int | None = None, verdict: str | None = None,
+def calls(date: str | None = None, agent_id: int | None = None, verdict: str | None = None,
           q_: str | None = Query(None, alias="q"), page: int = 1, page_size: int = 50):
-    where, args = _filters(date, agent_id, verdict, q_)
+    where, args = _filters(date or latest_date(), agent_id, verdict, q_)
     total = q(f"SELECT COUNT(*) c FROM calls WHERE {where}", args)
     page, page_size = max(1, page), min(max(1, page_size), 500)
     items = q(f"SELECT {LIST_COLS} FROM calls WHERE {where} ORDER BY started_at, interaction_id "
@@ -163,7 +194,8 @@ REC_BASE = "https://formi-prod-2.s3.eu-north-1.amazonaws.com/onboarding/"
 
 
 @app.get("/api/export.csv")
-def export_csv(date: str = AUDIT_DATE, agent_id: int | None = None, verdict: str | None = None):
+def export_csv(date: str | None = None, agent_id: int | None = None, verdict: str | None = None):
+    date = date or latest_date()
     where, args = _filters(date, agent_id, verdict, None)
     rows = q(f"SELECT * FROM calls WHERE {where} ORDER BY started_at, interaction_id", args)
     buf = io.StringIO()
@@ -193,6 +225,62 @@ def export_csv(date: str = AUDIT_DATE, agent_id: int | None = None, verdict: str
 def runs():
     return q("SELECT id, audit_date, started_at, finished_at, calls, model "
              "FROM runs ORDER BY id DESC")
+
+
+class StartJob(BaseModel):
+    date: str | None = None
+
+
+class ScheduleIn(BaseModel):
+    enabled: bool
+    time: str
+    target: str = "today"
+
+
+@app.get("/api/jobs")
+def list_jobs(limit: int = 20):
+    return {"items": JOBS.jobs(limit), "running": JOBS.current(),
+            "default_date": JOBS.default_date()}
+
+
+@app.post("/api/jobs", status_code=201)
+def start_job(body: StartJob):
+    try:
+        return JOBS.start(body.date or JOBS.default_date(), "manual")
+    except JOBS.Busy as e:
+        # 409, not 500: nothing is broken, the operator just has to wait.
+        raise HTTPException(409, str(e))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+
+@app.get("/api/jobs/{job_id}")
+def get_job(job_id: int, tail: int = 200):
+    j = JOBS.job(job_id, tail)
+    if not j:
+        raise HTTPException(404, "unknown job")
+    return j
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+def cancel_job(job_id: int):
+    j = JOBS.cancel(job_id)
+    if not j:
+        raise HTTPException(404, "unknown job")
+    return j
+
+
+@app.get("/api/schedule")
+def get_schedule():
+    return JOBS.schedule()
+
+
+@app.put("/api/schedule")
+def put_schedule(body: ScheduleIn):
+    try:
+        return JOBS.set_schedule(body.enabled, body.time, body.target)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
 
 
 @app.get("/{path:path}")

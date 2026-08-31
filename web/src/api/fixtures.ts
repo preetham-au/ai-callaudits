@@ -7,7 +7,7 @@
  * when the real thing arrives. Anything served from here raises the mock banner:
  * a fixture must never be mistaken for an audit.
  */
-import type { CallDetail, CallRow, CallsPage, Health, Run, Summary, Turn } from "./types";
+import type { CallDetail, CallRow, CallsPage, Health, JobsPage, Run, Schedule, Summary, Turn } from "./types";
 
 export const AUDIT_DATE = "2026-08-30";
 
@@ -339,7 +339,43 @@ const RUNS: Run[] = [
   },
 ];
 
-const HEALTH: Health = { ok: true, model: "Qwen3.5-4B", audit_date: AUDIT_DATE, calls_audited: 168 };
+const HEALTH: Health = {
+  ok: true,
+  model: "Qwen3.5-4B",
+  audit_date: AUDIT_DATE,
+  calls_audited: 168,
+  running_job: null,
+};
+
+/* Deliberately one finished run and no live one: the Runs page must look right
+   when nothing is happening, which is its usual state. */
+const JOBS: JobsPage = {
+  items: [
+    {
+      id: 1,
+      audit_date: AUDIT_DATE,
+      trigger: "schedule",
+      status: "done",
+      started_at: `${AUDIT_DATE}T23:30:00+05:30`,
+      finished_at: `${AUDIT_DATE}T23:55:00+05:30`,
+      exit_code: 0,
+      pid: 4242,
+      duration_s: 1500,
+    },
+  ],
+  running: null,
+  default_date: AUDIT_DATE,
+};
+
+const SCHEDULE: Schedule = {
+  enabled: true,
+  time: "23:30",
+  target: "today",
+  timezone: "Asia/Kolkata",
+  last_fired: AUDIT_DATE,
+  next_run: "2026-08-31T23:30:00+05:30",
+  next_target_date: "2026-08-31",
+};
 
 /** Answers a contract path with fixture data, applying the same filters the API would. */
 export function mockFor(path: string): unknown {
@@ -349,6 +385,15 @@ export function mockFor(path: string): unknown {
   if (route === "/health") return HEALTH;
   if (route === "/summary") return SUMMARY;
   if (route === "/runs") return RUNS;
+  if (route === "/jobs") return JOBS;
+  if (route === "/schedule") return SCHEDULE;
+
+  const jobDetail = /^\/jobs\/(\d+)$/.exec(route);
+  if (jobDetail) {
+    const job = JOBS.items.find((j) => j.id === Number(jobDetail[1]));
+    if (!job) throw new Error(`No mock job ${jobDetail[1]}`);
+    return { ...job, log: "168 calls, 168 with transcripts\njudge: 0 cached, 168 to send\n  judged 168/168 (884s)" };
+  }
 
   const detail = /^\/calls\/(\d+)$/.exec(route);
   if (detail) {
