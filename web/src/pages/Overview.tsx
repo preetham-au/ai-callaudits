@@ -16,8 +16,8 @@ function Bar({ value }: { value: number }) {
   );
 }
 
-export function OverviewPage() {
-  const { data, error, loading } = useResource<Summary>("/summary");
+export function OverviewPage({ date }: { date: string }) {
+  const { data, error, loading } = useResource<Summary>(date ? `/summary?date=${date}` : null);
 
   return (
     <>
@@ -30,6 +30,14 @@ export function OverviewPage() {
         {error ? <ErrorState error={error} /> : null}
         {loading || !data ? (
           <LoadingBlock rows={6} />
+        ) : data.totals.calls === 0 ? (
+          /* A day nobody audited is not the same as a day that went perfectly.
+             Say so, rather than rendering a wall of confident zeroes. */
+          <div className="empty-state">
+            <strong>No audit for {data.date}</strong>
+            Nothing has been audited for this date. Pick another day, or start a
+            run for it on the Runs page.
+          </div>
         ) : (
           <div className="grid">
             <Section

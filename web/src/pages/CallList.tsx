@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Download } from "lucide-react";
 import { API_BASE, useResource } from "../api/client";
 import type { CallsPage } from "../api/types";
@@ -7,8 +7,9 @@ import { href } from "../route";
 
 const PAGE_SIZE = 50;
 
-function query(filters: { agent: string; verdict: string; q: string }, page?: number): string {
+function query(filters: { date: string; agent: string; verdict: string; q: string }, page?: number): string {
   const p = new URLSearchParams();
+  if (filters.date) p.set("date", filters.date);
   if (filters.agent) p.set("agent_id", filters.agent);
   if (filters.verdict) p.set("verdict", filters.verdict);
   if (filters.q) p.set("q", filters.q);
@@ -19,7 +20,7 @@ function query(filters: { agent: string; verdict: string; q: string }, page?: nu
   return p.toString();
 }
 
-export function CallListPage() {
+export function CallListPage({ date }: { date: string }) {
   const [agent, setAgent] = useState("");
   const [verdict, setVerdict] = useState("");
   const [q, setQ] = useState("");
@@ -28,8 +29,12 @@ export function CallListPage() {
   const [applied, setApplied] = useState("");
   const [page, setPage] = useState(1);
 
-  const filters = { agent, verdict, q: applied };
-  const { data, error, loading } = useResource<CallsPage>(`/calls?${query(filters, page)}`);
+  // Page 4 of one day is rarely page 4 of another, and an out-of-range page
+  // reads as "no calls" when the day is in fact full of them.
+  useEffect(() => setPage(1), [date]);
+
+  const filters = { date, agent, verdict, q: applied };
+  const { data, error, loading } = useResource<CallsPage>(date ? `/calls?${query(filters, page)}` : null);
   const pages = data ? Math.max(1, Math.ceil(data.total / data.page_size)) : 1;
 
   function change(set: (v: string) => void) {
@@ -43,7 +48,7 @@ export function CallListPage() {
     <>
       <div className="page-head">
         <h1>Calls</h1>
-        <p>{data ? `${data.total} calls match` : "Loading calls"}</p>
+        <p>{data ? `${data.total} calls match on ${date}` : "Loading calls"}</p>
       </div>
 
       <div className="workspace">
@@ -108,8 +113,9 @@ export function CallListPage() {
             <LoadingBlock rows={8} />
           ) : data.items.length === 0 ? (
             <div className="empty-state">
-              <strong>No calls match these filters</strong>
-              Clear the search or pick a different verdict.
+              <strong>No calls match these filters on {date}</strong>
+              Clear the search, pick a different verdict, or choose another audit
+              date.
             </div>
           ) : (
             <div className="table-wrap">

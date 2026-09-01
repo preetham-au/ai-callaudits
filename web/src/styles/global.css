@@ -368,6 +368,27 @@ button {
   flex-wrap: wrap;
 }
 
+/* Inline, not the stacked .field used in toolbars: a label above the input
+   would make the sticky top bar noticeably taller on every screen. */
+.topbar-date {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: var(--t-micro);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.topbar-date .text-input {
+  font-size: var(--t-small);
+  letter-spacing: normal;
+  text-transform: none;
+  font-weight: 400;
+  color: var(--ink);
+}
+
 .sync-pill {
   display: inline-flex;
   align-items: center;

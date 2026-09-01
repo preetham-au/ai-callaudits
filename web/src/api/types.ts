@@ -13,6 +13,14 @@ export interface Health {
   running_job: Job | null;
 }
 
+/** A day that has been audited. `GET /api/dates`, newest first. */
+export interface AuditDay {
+  date: string;
+  calls: number;
+  /** Calls that had a transcript to judge; the rest were never connected. */
+  audited: number;
+}
+
 /** One attempt at running an audit — the trigger, not the audit's findings. */
 export type JobStatus = "running" | "done" | "failed" | "cancelled" | "interrupted";
 

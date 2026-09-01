@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { ClipboardCheck, LayoutDashboard, ListChecks, Menu, PlayCircle } from "lucide-react";
 import { MOCK_EVENT, isMocking, useResource } from "./api/client";
-import type { Health } from "./api/types";
+import type { AuditDay, Health } from "./api/types";
+import { todayIst } from "./components/common";
 import { href, useRoute, type Route } from "./route";
 import { CallDetailPage } from "./pages/CallDetail";
 import { CallListPage } from "./pages/CallList";
@@ -21,6 +22,19 @@ export default function App() {
   const [navOpen, setNavOpen] = useState(false);
   const [mock, setMock] = useState(isMocking);
   const health = useResource<Health>("/health");
+  const dates = useResource<AuditDay[]>("/dates");
+
+  /*
+   * The day Overview and Calls are both reading. Held here rather than per page
+   * so switching between the two does not silently jump back to the newest day
+   * mid-investigation. Empty until /health answers; the pages fetch nothing
+   * until then, which is what stops them loading the latest day and immediately
+   * re-loading the chosen one.
+   */
+  const [picked, setPicked] = useState("");
+  const date = picked || health.data?.audit_date || "";
+  const days = dates.data ?? [];
+  const dated = route.name === "overview" || route.name === "calls";
 
   useEffect(() => {
     const on = () => setMock(true);
@@ -62,7 +76,9 @@ export default function App() {
 
         <div className="nav-group nav-foot">
           <div className="nav-meta">
-            <span>Audit date {health.data?.audit_date ?? "—"}</span>
+            {/* "Latest", not "Audit date": the topbar picker owns that phrase
+                now, and two labels reading differently would look like a bug. */}
+            <span>Latest audit {health.data?.audit_date ?? "—"}</span>
             <span>Judge {health.data?.model ?? "—"}</span>
           </div>
         </div>
@@ -86,6 +102,27 @@ export default function App() {
             <Menu size={18} aria-hidden />
           </button>
           <div className="topbar-actions">
+            {dated ? (
+              <label className="topbar-date">
+                <span>Audit date</span>
+                {/* Native date input: no picker dependency, it knows the
+                    operator's locale format, and unlike a dropdown of audited
+                    days it can select a day that was never audited — which is
+                    exactly the gap worth seeing. */}
+                {/* Bounded by the oldest audit and today, NOT by the newest
+                    audit: the days between the last run and now are exactly the
+                    ones worth being able to select, because that is where a
+                    missed nightly run hides. */}
+                <input
+                  className="text-input"
+                  type="date"
+                  value={date}
+                  min={days.length ? days[days.length - 1].date : undefined}
+                  max={todayIst()}
+                  onChange={(e) => setPicked(e.target.value)}
+                />
+              </label>
+            ) : null}
             <span className="sync-pill">
               <span className={`sync-dot${mock ? " stale" : ""}`} aria-hidden />
               {mock ? "Fixtures" : `${health.data?.calls_audited ?? 0} calls audited`}
@@ -94,8 +131,8 @@ export default function App() {
         </header>
 
         <main id="content" tabIndex={-1}>
-          {route.name === "overview" ? <OverviewPage /> : null}
-          {route.name === "calls" ? <CallListPage /> : null}
+          {route.name === "overview" ? <OverviewPage date={date} /> : null}
+          {route.name === "calls" ? <CallListPage date={date} /> : null}
           {route.name === "call" ? <CallDetailPage id={route.id} /> : null}
           {route.name === "manual" ? <ManualAuditPage /> : null}
           {route.name === "runs" ? <RunsPage /> : null}

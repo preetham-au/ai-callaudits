@@ -8,6 +8,7 @@
  * a fixture must never be mistaken for an audit.
  */
 import type {
+  AuditDay,
   CallDetail,
   CallRow,
   CallsPage,
@@ -382,6 +383,23 @@ const SUMMARY: Summary = {
   ],
 };
 
+/** What the API returns for a date nothing was ever audited on. */
+const EMPTY_SUMMARY: Summary = {
+  date: AUDIT_DATE,
+  totals: { calls: 0, audited: 0, no_transcript: 0, pass: 0, warn: 0, fail: 0, avg_score: 0 },
+  by_agent: [],
+  variables: [],
+  flow: [],
+};
+
+/* Deliberately gappy: 29 Aug is missing, so the date picker's "no audits for
+   this day" state is reachable in mock mode without a live database. */
+const DATES: AuditDay[] = [
+  { date: AUDIT_DATE, calls: 687, audited: 168 },
+  { date: "2026-08-28", calls: 640, audited: 155 },
+  { date: "2026-08-27", calls: 612, audited: 149 },
+];
+
 const RUNS: Run[] = [
   {
     id: 1,
@@ -437,7 +455,13 @@ export function mockFor(path: string): unknown {
   const p = new URLSearchParams(query ?? "");
 
   if (route === "/health") return HEALTH;
-  if (route === "/summary") return SUMMARY;
+  if (route === "/dates") return DATES;
+  if (route === "/summary") {
+    // A day with no audits must read as zeros, not as the sample day's numbers.
+    const date = p.get("date") ?? SUMMARY.date;
+    if (!DATES.some((d) => d.date === date)) return { ...EMPTY_SUMMARY, date };
+    return { ...SUMMARY, date };
+  }
   if (route === "/runs") return RUNS;
   if (route === "/jobs") return JOBS;
   if (route === "/schedule") return SCHEDULE;
@@ -462,7 +486,10 @@ export function mockFor(path: string): unknown {
     const q = (p.get("q") ?? "").trim().toLowerCase();
     const page = Number(p.get("page") ?? 1);
     const size = Number(p.get("page_size") ?? 50);
-    const items = ROWS.filter(
+    const date = p.get("date");
+    // Only the sample day has rows; every other date is legitimately empty.
+    const pool = date && date !== AUDIT_DATE ? [] : ROWS;
+    const items = pool.filter(
       (r) =>
         (!agent || r.agent_id === Number(agent)) &&
         (!verdict || r.verdict === verdict) &&

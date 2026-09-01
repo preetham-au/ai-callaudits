@@ -104,6 +104,18 @@ export function clockIst(iso: string | null): ReactNode {
   return new Date(iso).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" });
 }
 
+/**
+ * Today in IST as `yyyy-mm-dd`, for a date input's upper bound.
+ *
+ * en-CA because it is the one common locale whose short date IS the ISO form,
+ * which is what `<input type="date">` wants. The VM's clock is UTC, so before
+ * 05:30 IST a naive `toISOString()` would name yesterday and quietly forbid
+ * picking the day the operator is actually in.
+ */
+export function todayIst(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+}
+
 /** The day the call was made, in IST — a run started at 23:30 UTC audits "yesterday". */
 export function dayIst(iso: string | null): ReactNode {
   if (!iso) return <Nul />;
