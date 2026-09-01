@@ -202,7 +202,8 @@ export interface ManualItem {
   customer_name: string | null;
   reg_no: string | null;
   policy_no: string | null;
-  recording_url: string;
+  /** Null when the provider gave no recording id for the call. */
+  recording_url: string | null;
   /** The injected values, in the workbook's `RED: ...; DTD: ...` shape. */
   pre_call: string;
   transcript: Turn[];

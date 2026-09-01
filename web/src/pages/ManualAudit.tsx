@@ -393,14 +393,13 @@ function AuditDialog({
           </Section>
 
           <div style={{ display: "grid", gap: "var(--s4)" }}>
+            <Section title="Recording" subtitle="Listen while you read the transcript">
+              <Recording url={call.recording_url} />
+            </Section>
+
             <Section title="What was fed to the agent" subtitle="Check these against what was said">
               <p className="figure" style={{ margin: 0, fontSize: "var(--t-micro)", lineHeight: 1.7 }}>
                 {call.pre_call || <Nul />}
-              </p>
-              <p style={{ marginBottom: 0 }}>
-                <a className="btn btn-ghost" href={call.recording_url} target="_blank" rel="noreferrer">
-                  <ExternalLink size={14} aria-hidden /> Recording
-                </a>
               </p>
             </Section>
 
@@ -464,6 +463,47 @@ function AuditDialog({
         </div>
       </div>
     </dialog>
+  );
+}
+
+/**
+ * The call, played here rather than in a new tab.
+ *
+ * A plain <audio>: the bucket serves audio/mpeg and honours range requests, so
+ * the browser's own controls already give play, seek and speed, and none of it
+ * is worth a player dependency. `preload="none"` so opening a call does not
+ * pull a recording nobody asked to hear.
+ */
+function Recording({ url }: { url: string | null }) {
+  const [broken, setBroken] = useState(false);
+
+  if (!url) {
+    return <p className="nul" style={{ margin: 0 }}>No recording for this call.</p>;
+  }
+  return (
+    <>
+      <audio
+        controls
+        preload="none"
+        src={url}
+        style={{ width: "100%" }}
+        onError={() => setBroken(true)}
+      >
+        Your browser cannot play audio.
+      </audio>
+      {broken ? (
+        <p className="autosave failed" style={{ margin: 0 }}>
+          The recording would not load — open it directly to check it exists.
+        </p>
+      ) : null}
+      {/* Kept as a way out: downloading it is the only option if the browser
+          refuses the codec, or the reviewer wants it offline. */}
+      <p style={{ margin: 0 }}>
+        <a className="btn btn-ghost" href={url} target="_blank" rel="noreferrer">
+          <ExternalLink size={14} aria-hidden /> Open the file
+        </a>
+      </p>
+    </>
   );
 }
 

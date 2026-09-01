@@ -172,7 +172,8 @@ const MANUAL_QUEUE: ManualItem[] = ROWS.filter((r) => r.verdict !== "no_transcri
     customer_name: r.customer_name,
     reg_no: r.reg_no,
     policy_no: `PC${900000 + i}`,
-    recording_url: "https://example.invalid/recording.mp3",
+    /* One without a recording, so the "no recording" case is visible offline too. */
+    recording_url: i === 1 ? null : "https://example.invalid/recording.mp3",
     pre_call: "RED: 2026-09-07; DTD: seventy five; NCB: twenty five percent",
     transcript: r.agent_id === 125 ? HINDI : TAMIL,
     turns: r.turns,

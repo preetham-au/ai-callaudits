@@ -226,7 +226,11 @@ def _hydrate(r: sqlite3.Row) -> dict:
     d = dict(r)
     d["transcript"] = json.loads(d["transcript"]) if d.get("transcript") else []
     d["pre_call"] = _precall(d.pop("variables", None))
-    d["recording_url"] = REC_BASE + (d.pop("provider_sid", None) or "")
+    # Null, not a base URL with nothing on the end: a call the provider never
+    # gave a sid for has no recording, and the player should say so rather than
+    # offer a link to a 404.
+    sid = d.pop("provider_sid", None)
+    d["recording_url"] = REC_BASE + sid if sid else None
     d["language"] = "Tamil" if d.get("agent_id") == 127 else "Hindi"
     return d
 
@@ -320,7 +324,7 @@ def report(date_from: str, date_to: str) -> list[dict]:
             "Language": h["language"], "Call Date": h["audit_date"],
             "Call Time (IST)": started[11:16],
             "Duration (mm:ss)": _mmss(h.get("duration_s")),
-            "Recording URL": h["recording_url"], "Pre-Call": h["pre_call"],
+            "Recording URL": h["recording_url"] or "", "Pre-Call": h["pre_call"],
             "Transcript": "\n".join(f"{t['role'].upper()}: {t['content']}"
                                     for t in h["transcript"]),
             "During-Call Info Accuracy": h.get("info_accuracy") or "",
