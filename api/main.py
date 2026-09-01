@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from api import jobs as JOBS
+from api import manual as MANUAL
 from audit.data import AUDIT_DATE, ROOT
 from audit.judge import MODEL, TRANSCRIPT_BUDGET, est_tokens
 from audit.run import DB
@@ -281,6 +282,89 @@ def put_schedule(body: ScheduleIn):
         return JOBS.set_schedule(body.enabled, body.time, body.target)
     except ValueError as e:
         raise HTTPException(422, str(e))
+
+
+# ------------------------------------------------------- manual audits ---
+# The by-hand sample: ten of yesterday's real conversations per reviewer, their
+# answers stored here rather than in a workbook. No login — a reviewer picks
+# their name, which is all the tracker ever had too.
+
+class SubmitIn(BaseModel):
+    info_accuracy: str | None = None
+    call_flow: str | None = None
+    verdict: str | None = None
+    notes: str | None = None
+
+
+class AuditorsIn(BaseModel):
+    names: list[str]
+
+
+@app.get("/api/manual/options")
+def manual_options():
+    """Everything the form's dropdowns need, so the UI has no copy of the lists."""
+    return {"auditors": [a["name"] for a in MANUAL.auditors()],
+            "info_accuracy": list(MANUAL.INFO_ACCURACY),
+            "call_flow": list(MANUAL.CALL_FLOW),
+            "verdicts": list(MANUAL.VERDICTS),
+            "per_auditor": MANUAL.PER_AUDITOR,
+            "default_date": MANUAL.default_date()}
+
+
+@app.put("/api/manual/auditors")
+def put_auditors(body: AuditorsIn):
+    try:
+        return MANUAL.set_auditors(body.names)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+
+@app.get("/api/manual/queue")
+def manual_queue(auditor: str, date: str | None = None):
+    try:
+        return MANUAL.queue(date or MANUAL.default_date(), auditor)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+
+@app.get("/api/manual/progress")
+def manual_progress(date: str | None = None):
+    try:
+        return {"date": date or MANUAL.default_date(),
+                "items": MANUAL.progress(date or MANUAL.default_date())}
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+
+@app.post("/api/manual/{interaction_id}")
+def manual_submit(interaction_id: int, auditor: str, body: SubmitIn,
+                  date: str | None = None):
+    try:
+        return MANUAL.submit(date or MANUAL.default_date(), auditor,
+                             interaction_id, body.model_dump())
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+
+@app.get("/api/manual/export.csv")
+def manual_export(date_from: str | None = None, date_to: str | None = None):
+    frm = date_from or MANUAL.default_date()
+    to = date_to or frm
+    try:
+        rows = MANUAL.report(frm, to)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, MANUAL.REPORT_COLS, extrasaction="ignore")
+    w.writeheader()
+    w.writerows(rows)
+    name = f"manual_audits_{frm}.csv" if frm == to else f"manual_audits_{frm}_to_{to}.csv"
+    return Response(
+        content="﻿" + buf.getvalue(),  # BOM: Excel and the Tamil transcript column
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
 @app.get("/{path:path}")

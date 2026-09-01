@@ -177,6 +177,61 @@ export interface CallDetail extends CallRow {
   judge: { model: string; latency_ms: number | null; raw: string | null };
 }
 
+/* Manual audits — the ten-a-day sample a reviewer listens to by hand. The
+   allowed values live on the server (`/manual/options`) so the workbook's
+   dropdowns have one definition, not two. */
+
+export interface ManualOptions {
+  auditors: string[];
+  info_accuracy: string[];
+  call_flow: string[];
+  verdicts: string[];
+  per_auditor: number;
+  /** Yesterday in IST — the day a reviewer comes in to audit. */
+  default_date: string;
+}
+
+export interface ManualItem {
+  interaction_id: number;
+  agent_id: number;
+  audit_date: string;
+  auditor: string;
+  language: string;
+  started_at: string;
+  duration_s: number | null;
+  customer_name: string | null;
+  reg_no: string | null;
+  policy_no: string | null;
+  recording_url: string;
+  /** The injected values, in the workbook's `RED: ...; DTD: ...` shape. */
+  pre_call: string;
+  transcript: Turn[];
+  turns: number;
+  /** What the platform decided, shown but not editable. */
+  disposition: string | null;
+  disposition_verdict: CallVerdict;
+  engine_verdict: CallVerdict;
+  score: number | null;
+  info_accuracy: string | null;
+  call_flow: string | null;
+  verdict: string | null;
+  notes: string | null;
+  submitted_at: string | null;
+}
+
+export interface ManualQueue {
+  date: string;
+  auditor: string;
+  items: ManualItem[];
+  assigned: number;
+  done: number;
+}
+
+export interface ManualProgress {
+  date: string;
+  items: Array<{ auditor: string; assigned: number; done: number }>;
+}
+
 export interface Run {
   id: number;
   audit_date: string;

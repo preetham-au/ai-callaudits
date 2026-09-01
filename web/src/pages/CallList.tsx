@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Download } from "lucide-react";
 import { API_BASE, useResource } from "../api/client";
 import type { CallsPage } from "../api/types";
-import { ErrorState, LoadingBlock, Section, VerdictPill, clockIst, num, score, text } from "../components/common";
+import { ErrorState, LoadingBlock, Section, VerdictPill, clockIst, dayIst, num, score, text } from "../components/common";
 import { href } from "../route";
 
 const PAGE_SIZE = 50;
@@ -118,7 +118,7 @@ export function CallListPage() {
                 <thead>
                   <tr>
                     <th scope="col">Call</th>
-                    <th scope="col">Time</th>
+                    <th scope="col">Call date</th>
                     <th scope="col">Customer</th>
                     <th scope="col">Reg no</th>
                     <th scope="col" className="num">Turns</th>
@@ -137,7 +137,12 @@ export function CallListPage() {
                         <a href={href({ name: "call", id: c.interaction_id })}>{c.interaction_id}</a>
                         <div className="metric-note">{c.agent_id === 127 ? "Tamil" : "Hindi"}</div>
                       </th>
-                      <td className="figure">{clockIst(c.started_at)}</td>
+                      {/* Both IST: the dial times are stored with a +05:30 offset,
+                          and the VM's own clock is UTC. */}
+                      <td className="figure">
+                        {dayIst(c.started_at)}
+                        <div className="metric-note">{clockIst(c.started_at)} IST</div>
+                      </td>
                       <td>{text(c.customer_name)}</td>
                       <td className="figure">{text(c.reg_no)}</td>
                       <td className="num">{num(c.turns)}</td>

@@ -11,6 +11,7 @@ export type Route =
   | { name: "overview" }
   | { name: "calls" }
   | { name: "call"; id: number }
+  | { name: "manual" }
   | { name: "runs" };
 
 export function currentRoute(): Route {
@@ -18,6 +19,7 @@ export function currentRoute(): Route {
   const call = /^calls\/(\d+)$/.exec(hash);
   if (call) return { name: "call", id: Number(call[1]) };
   if (hash === "calls") return { name: "calls" };
+  if (hash === "manual") return { name: "manual" };
   if (hash === "runs") return { name: "runs" };
   return { name: "overview" };
 }

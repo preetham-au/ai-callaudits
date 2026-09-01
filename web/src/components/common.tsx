@@ -104,6 +104,16 @@ export function clockIst(iso: string | null): ReactNode {
   return new Date(iso).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" });
 }
 
+/** The day the call was made, in IST — a run started at 23:30 UTC audits "yesterday". */
+export function dayIst(iso: string | null): ReactNode {
+  if (!iso) return <Nul />;
+  return new Date(iso).toLocaleDateString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit",
+    month: "short",
+  });
+}
+
 /** BCP-47 tag for a transcript, so screen readers switch voice and fonts pick the right face. */
 export function langOf(agentId: number): "hi" | "ta" {
   return agentId === 127 ? "ta" : "hi";

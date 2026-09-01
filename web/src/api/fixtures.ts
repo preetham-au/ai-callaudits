@@ -7,7 +7,21 @@
  * when the real thing arrives. Anything served from here raises the mock banner:
  * a fixture must never be mistaken for an audit.
  */
-import type { CallDetail, CallRow, CallsPage, Health, JobsPage, Run, Schedule, Summary, Turn } from "./types";
+import type {
+  CallDetail,
+  CallRow,
+  CallsPage,
+  Health,
+  JobsPage,
+  ManualItem,
+  ManualOptions,
+  ManualProgress,
+  ManualQueue,
+  Run,
+  Schedule,
+  Summary,
+  Turn,
+} from "./types";
 
 export const AUDIT_DATE = "2026-08-30";
 
@@ -133,6 +147,45 @@ const ROWS: CallRow[] = SEEDS.map((s, i) => {
       : null,
   };
 });
+
+const MANUAL_OPTIONS: ManualOptions = {
+  auditors: ["Preetham", "HV", "Swarna"],
+  info_accuracy: ["Accurate", "Inaccurate"],
+  call_flow: ["Followed", "Not Followed"],
+  verdicts: ["Pass", "Needs Coaching", "Escalate", "Incomplete", "Not Applicable"],
+  per_auditor: 10,
+  default_date: AUDIT_DATE,
+};
+
+/* A short queue on purpose: enough to show a mixed-language list and a call
+   already audited, without ten copies of the same two transcripts. */
+const MANUAL_QUEUE: ManualItem[] = ROWS.filter((r) => r.verdict !== "no_transcript")
+  .slice(0, 4)
+  .map((r, i) => ({
+    interaction_id: r.interaction_id,
+    agent_id: r.agent_id,
+    audit_date: AUDIT_DATE,
+    auditor: "Preetham",
+    language: r.agent_id === 127 ? "Tamil" : "Hindi",
+    started_at: r.started_at,
+    duration_s: r.duration_s,
+    customer_name: r.customer_name,
+    reg_no: r.reg_no,
+    policy_no: `PC${900000 + i}`,
+    recording_url: "https://example.invalid/recording.mp3",
+    pre_call: "RED: 2026-09-07; DTD: seventy five; NCB: twenty five percent",
+    transcript: r.agent_id === 125 ? HINDI : TAMIL,
+    turns: r.turns,
+    disposition: r.disposition,
+    disposition_verdict: r.disposition_verdict,
+    engine_verdict: r.verdict,
+    score: r.score,
+    info_accuracy: i === 0 ? "Accurate" : null,
+    call_flow: i === 0 ? "Followed" : null,
+    verdict: i === 0 ? "Pass" : null,
+    notes: i === 0 ? "Premium and RED date both read back correctly." : null,
+    submitted_at: i === 0 ? `${AUDIT_DATE}T18:20:00+05:30` : null,
+  }));
 
 function detailFor(row: CallRow): CallDetail {
   const hindi = row.agent_id === 125;
@@ -420,6 +473,30 @@ export function mockFor(path: string): unknown {
       page,
       page_size: size,
       total: items.length,
+    };
+    return out;
+  }
+
+  if (route === "/manual/options") return MANUAL_OPTIONS;
+  if (route === "/manual/progress") {
+    const out: ManualProgress = {
+      date: p.get("date") ?? AUDIT_DATE,
+      items: MANUAL_OPTIONS.auditors.map((auditor, i) => ({
+        auditor,
+        assigned: MANUAL_QUEUE.length,
+        done: i === 0 ? 1 : 0,
+      })),
+    };
+    return out;
+  }
+  if (route === "/manual/queue") {
+    const items = MANUAL_QUEUE;
+    const out: ManualQueue = {
+      date: p.get("date") ?? AUDIT_DATE,
+      auditor: p.get("auditor") ?? MANUAL_OPTIONS.auditors[0],
+      items,
+      assigned: items.length,
+      done: items.filter((i) => i.submitted_at).length,
     };
     return out;
   }
