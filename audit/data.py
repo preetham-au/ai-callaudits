@@ -41,6 +41,14 @@ OUTLET_ID = 1497
 RETRY_STATUSES = (502, 503, 504)
 MAX_ATTEMPTS = 4
 
+# /api/dataset caps a native query at 2000 rows and says nothing about it: no
+# error, no flag in the body, just a short list. 31 Aug had 5757 calls and came
+# back as 2000, and because the query was ORDER BY i.id the 3757 dropped were
+# the whole back half of the day -- including every Tamil call, since agent 127's
+# campaign is dialled after agent 125's. The day looked audited and was not.
+METABASE_ROW_CAP = 2000
+PAGE = 1000
+
 
 def run_native_sql(sql: str, timeout: int = 300) -> list[dict]:
     url = ENV["METABASE_URL"].rstrip("/") + "/api/dataset"
@@ -66,7 +74,33 @@ def run_native_sql(sql: str, timeout: int = 300) -> list[dict]:
         raise RuntimeError(f"Metabase query failed: {body.get('error') or body}")
     data = body.get("data", {})
     cols = [c["name"] for c in data.get("cols", [])]
-    return [dict(zip(cols, row)) for row in data.get("rows", [])]
+    rows = [dict(zip(cols, row)) for row in data.get("rows", [])]
+    # Anything that lands exactly on the cap has almost certainly been cut. Better
+    # a loud failure than another day that reads as complete and is missing half
+    # its calls; use `_paged` for queries that legitimately return this many.
+    if len(rows) >= METABASE_ROW_CAP:
+        raise RuntimeError(
+            f"Metabase returned {len(rows)} rows, its cap — the result is truncated. "
+            "Page the query instead of raising the limit.")
+    return rows
+
+
+def _paged(where: str) -> list[dict]:
+    """Every row matching `where`, in id order, a page at a time.
+
+    Keyset, not OFFSET: the interactions table is being written to while an audit
+    runs, and OFFSET over a moving table skips rows. `id` is the primary key, so
+    `id > last` is both stable and indexed.
+    """
+    out: list[dict] = []
+    last = 0
+    while True:
+        page = run_native_sql(
+            f"{_SELECT} WHERE {where} AND i.id > {last} ORDER BY i.id LIMIT {PAGE}")
+        out.extend(page)
+        if len(page) < PAGE:
+            return out
+        last = int(page[-1]["id"])
 
 
 # `ended_time - created_at` spans the whole dial attempt, not the conversation:
@@ -102,14 +136,12 @@ def _clean(rows: list[dict]) -> list[dict]:
 
 
 def fetch_day(date: str) -> list[dict]:
-    return _clean(run_native_sql(
-        f"{_SELECT} WHERE i.outlet_id = {OUTLET_ID} "
-        f"AND i.created_at >= '{date}' AND i.created_at < '{date}'::date + 1 ORDER BY i.id"
-    ))
+    return _clean(_paged(f"i.outlet_id = {OUTLET_ID} "
+                         f"AND i.created_at >= '{date}' AND i.created_at < '{date}'::date + 1"))
 
 
 def fetch_ids(ids: list[int]) -> list[dict]:
     if not ids:
         return []
     joined = ",".join(str(int(i)) for i in ids)
-    return _clean(run_native_sql(f"{_SELECT} WHERE i.id IN ({joined}) ORDER BY i.id"))
+    return _clean(_paged(f"i.id IN ({joined})"))
