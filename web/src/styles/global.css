@@ -1138,3 +1138,88 @@ tr.worst .var-name {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* ---------- Manual audit ---------- */
+
+/* Native <dialog>: it brings the top layer, the backdrop, focus trapping and
+   Escape-to-close with it, none of which is worth reimplementing. */
+.audit-dialog {
+  width: min(1180px, calc(100vw - var(--s8)));
+  max-height: calc(100vh - var(--s8));
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--paper);
+  color: var(--ink);
+  overflow: hidden;
+}
+
+.audit-dialog::backdrop {
+  background: rgb(26 28 31 / 45%);
+  backdrop-filter: blur(3px);
+}
+
+.audit-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s4);
+  padding: var(--s6) var(--s6) var(--s4);
+}
+
+.audit-dialog-head h2 {
+  margin: 0;
+  font-size: var(--t-lead);
+}
+
+.audit-dialog-body {
+  padding: 0 var(--s6) var(--s6);
+  max-height: calc(100vh - 200px);
+  overflow-y: auto;
+}
+
+/* Inside the dialog the transcript gets its own scroll, so the form beside it
+   stays put while the reviewer reads. */
+.audit-dialog .pane-scroll {
+  max-height: calc(100vh - 320px);
+}
+
+/* A bar rather than a number alone: a reviewer wants to see at a glance how
+   much of their ten is left. */
+.progress-bar {
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.progress-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--ink);
+  transition: width 200ms ease;
+}
+
+.progress-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+}
+
+.progress-row .progress-bar {
+  flex: 1 1 auto;
+  min-width: 80px;
+}
+
+/* Autosave state. Deliberately quiet -- it should reassure, not interrupt. */
+.autosave {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: var(--t-micro);
+  color: var(--ink-3);
+}
+
+.autosave.failed {
+  color: var(--bad);
+}

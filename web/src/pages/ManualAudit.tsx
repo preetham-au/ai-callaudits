@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Check, Download, ExternalLink } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Check, Download, ExternalLink, X } from "lucide-react";
 import { API_BASE, send, useResource } from "../api/client";
 import type { ManualItem, ManualOptions, ManualProgress, ManualQueue } from "../api/types";
 import {
@@ -19,7 +19,7 @@ import {
  * Manual audits — the by-hand replacement for "Chola Call Audits.xlsx".
  *
  * A reviewer picks their name, gets ten of yesterday's real conversations, and
- * fills in the same four fields the workbook had, next to the transcript rather
+ * fills in the same four fields the workbook had, over the transcript rather
  * than in a separate tab. There is no login: the workbook had none either, and
  * the name is a label on the row, not a claim about who is typing.
  *
@@ -34,8 +34,8 @@ export function ManualAuditPage() {
   const [who, setWho] = useState(() => localStorage.getItem(REMEMBER) ?? "");
   const [date, setDate] = useState("");
   const [open, setOpen] = useState<number | null>(null);
-  // Bumped after every save so the queue, and the progress strip beside it,
-  // both re-read rather than showing an answer that is one submit stale.
+  // Bumped after every save so the queue, and the progress beside it, both
+  // re-read rather than showing an answer that is one save stale.
   const [saved, setSaved] = useState(0);
 
   const day = date || options.data?.default_date || "";
@@ -70,9 +70,7 @@ export function ManualAuditPage() {
       <div className="workspace">
         <Section
           title="Your queue"
-          subtitle={
-            queue.data ? `${queue.data.done} of ${queue.data.assigned} audited` : "Pick your name to start"
-          }
+          subtitle="Every answer saves itself, so you can stop anywhere and pick it up later."
           wide
           actions={
             <a className="btn" href={`${API_BASE}/manual/export.csv?date_from=${day}&date_to=${day}`} download>
@@ -117,18 +115,28 @@ export function ManualAuditPage() {
               />
             </div>
 
-            <span className="spacer" />
-
-            {(progress.data?.items ?? []).map((p) => (
-              <span key={p.auditor} className="sync-pill">
-                {p.auditor} {p.done}/{p.assigned}
-              </span>
-            ))}
+            <div className="field" style={{ flex: "1 1 240px" }}>
+              <label>Your progress</label>
+              <Progress done={queue.data?.done ?? 0} of={queue.data?.assigned ?? 0} />
+            </div>
           </div>
+
+          {/* Everyone's progress, so a supervisor does not have to switch names
+              one by one to see where the day stands. */}
+          {(progress.data?.items ?? []).length > 0 ? (
+            <div className="toolbar" style={{ gap: "var(--s6)" }}>
+              {progress.data?.items.map((p) => (
+                <div key={p.auditor} className="field" style={{ flex: "1 1 180px" }}>
+                  <label>{p.auditor}</label>
+                  <Progress done={p.done} of={p.assigned} />
+                </div>
+              ))}
+            </div>
+          ) : null}
 
           {options.error ? <ErrorState error={options.error} /> : null}
           {queue.error ? <ErrorState error={queue.error} /> : null}
-          {queue.loading ? <LoadingBlock rows={6} /> : null}
+          {queue.loading && !queue.data ? <LoadingBlock rows={6} /> : null}
 
           {queue.data && items.length === 0 ? (
             <div className="empty-state">
@@ -141,7 +149,9 @@ export function ManualAuditPage() {
           {items.length > 0 ? (
             <div className="table-wrap">
               <table className="data-table">
-                <caption className="sr-only">Calls assigned to {who} on {day}</caption>
+                <caption className="sr-only">
+                  Calls assigned to {who} on {day}
+                </caption>
                 <thead>
                   <tr>
                     <th scope="col">Call</th>
@@ -156,7 +166,7 @@ export function ManualAuditPage() {
                 </thead>
                 <tbody>
                   {items.map((c) => (
-                    <tr key={c.interaction_id} aria-selected={open === c.interaction_id}>
+                    <tr key={c.interaction_id}>
                       <th scope="row" className="figure" style={{ textAlign: "left" }}>
                         {c.interaction_id}
                         <div className="metric-note">{c.language}</div>
@@ -174,21 +184,15 @@ export function ManualAuditPage() {
                         </div>
                       </td>
                       <td>
-                        {c.verdict ? (
-                          <strong>{c.verdict}</strong>
-                        ) : (
-                          <span className="nul">not audited</span>
-                        )}
+                        {c.verdict ? <strong>{c.verdict}</strong> : <span className="nul">not audited</span>}
                       </td>
                       <td>
                         <button
                           type="button"
-                          className="btn"
-                          onClick={() =>
-                            setOpen(open === c.interaction_id ? null : c.interaction_id)
-                          }
+                          className={c.submitted_at ? "btn" : "btn btn-primary"}
+                          onClick={() => setOpen(c.interaction_id)}
                         >
-                          {open === c.interaction_id ? "Close" : c.submitted_at ? "Review" : "Audit"}
+                          {c.submitted_at ? "Review" : "Audit"}
                         </button>
                       </td>
                     </tr>
@@ -198,163 +202,297 @@ export function ManualAuditPage() {
             </div>
           ) : null}
         </Section>
-
-        {current && options.data ? (
-          <AuditPanel
-            key={current.interaction_id}
-            call={current}
-            options={options.data}
-            date={day}
-            auditor={who}
-            onSaved={() => setSaved((n) => n + 1)}
-          />
-        ) : null}
       </div>
+
+      {current && options.data ? (
+        <AuditDialog
+          key={current.interaction_id}
+          call={current}
+          options={options.data}
+          date={day}
+          auditor={who}
+          position={items.findIndex((i) => i.interaction_id === current.interaction_id) + 1}
+          total={items.length}
+          onClose={() => setOpen(null)}
+          onNext={() => {
+            const i = items.findIndex((c) => c.interaction_id === current.interaction_id);
+            setOpen(i + 1 < items.length ? items[i + 1].interaction_id : null);
+          }}
+          onSaved={() => setSaved((n) => n + 1)}
+        />
+      ) : null}
     </>
   );
 }
 
-function AuditPanel({
+function Progress({ done, of }: { done: number; of: number }) {
+  const pct = of > 0 ? Math.round((done / of) * 100) : 0;
+  return (
+    <div className="progress-row">
+      <div
+        className="progress-bar"
+        role="progressbar"
+        aria-valuenow={done}
+        aria-valuemin={0}
+        aria-valuemax={of}
+        aria-label={`${done} of ${of} audited`}
+      >
+        <span style={{ width: `${pct}%` }} />
+      </div>
+      <span className="figure" style={{ fontSize: "var(--t-micro)" }}>
+        {done}/{of}
+      </span>
+    </div>
+  );
+}
+
+type SaveState = "clean" | "saving" | "saved" | "failed";
+
+/** How long after the last keystroke a save fires. Long enough not to POST per
+ *  character, short enough that closing the tab mid-thought keeps the note. */
+const AUTOSAVE_MS = 700;
+
+function AuditDialog({
   call,
   options,
   date,
   auditor,
+  position,
+  total,
+  onClose,
+  onNext,
   onSaved,
 }: {
   call: ManualItem;
   options: ManualOptions;
   date: string;
   auditor: string;
+  position: number;
+  total: number;
+  onClose: () => void;
+  onNext: () => void;
   onSaved: () => void;
 }) {
+  const ref = useRef<HTMLDialogElement>(null);
   const [form, setForm] = useState({
     info_accuracy: call.info_accuracy ?? "",
     call_flow: call.call_flow ?? "",
     verdict: call.verdict ?? "",
     notes: call.notes ?? "",
   });
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
-  const [done, setDone] = useState(false);
+  const [state, setState] = useState<SaveState>("clean");
+  const [error, setError] = useState<string | null>(null);
+
+  const url = `/manual/${call.interaction_id}?auditor=${encodeURIComponent(auditor)}&date=${date}`;
+  // What the server last accepted, and what the form holds right now. Both are
+  // refs so the unmount flush below can compare them without re-subscribing.
+  const stored = useRef(JSON.stringify(form));
+  const latest = useRef(form);
+  latest.current = form;
+
+  // showModal() rather than the `open` attribute: only the former puts the
+  // dialog in the top layer, with a backdrop and Escape handled for us.
+  useEffect(() => {
+    const el = ref.current;
+    if (el && !el.open) el.showModal();
+  }, []);
+
+  // Autosave. The reviewer never presses Save; leaving mid-call keeps whatever
+  // was picked, and reopening the row shows it back. Skips the first render so
+  // merely opening a call does not write a row.
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    setState("saving");
+    const body = JSON.stringify(form);
+    const t = setTimeout(async () => {
+      try {
+        await send(url, "POST", form);
+        stored.current = body;
+        setState("saved");
+        setError(null);
+        onSaved();
+      } catch (e) {
+        setState("failed");
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    }, AUTOSAVE_MS);
+    return () => clearTimeout(t);
+    // onSaved is a fresh closure each render; only the form should trigger a save.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form, url]);
+
+  /* Closing cancels the pending debounce, so anything picked in the last
+     AUTOSAVE_MS would be lost — which is precisely the moment a reviewer picks
+     a verdict and moves on. Flush it on the way out. */
+  useEffect(() => {
+    const flush = () => {
+      if (JSON.stringify(latest.current) !== stored.current) {
+        void send(url, "POST", latest.current).catch(() => undefined);
+      }
+    };
+    window.addEventListener("pagehide", flush);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      flush();
+    };
+  }, [url]);
 
   function set(key: keyof typeof form) {
-    return (e: React.ChangeEvent<HTMLSelectElement | HTMLTextAreaElement>) => {
+    return (e: React.ChangeEvent<HTMLSelectElement | HTMLTextAreaElement>) =>
       setForm((f) => ({ ...f, [key]: e.target.value }));
-      setDone(false);
-    };
   }
 
-  async function save(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      await send(
-        `/manual/${call.interaction_id}?auditor=${encodeURIComponent(auditor)}&date=${date}`,
-        "POST",
-        form,
-      );
-      setDone(true);
-      onSaved();
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error(String(err)));
-    } finally {
-      setBusy(false);
-    }
-  }
+  const filled = [form.info_accuracy, form.call_flow, form.verdict].filter(Boolean).length;
 
   return (
-    <div className="detail-split span-full">
-      <Section title="Transcript" subtitle={`${call.transcript.length} turns · call ${call.interaction_id}`}>
-        <div className="transcript pane-scroll" lang={langOf(call.agent_id)}>
-          {call.transcript.map((t) => (
-            <div key={t.index} className={`turn turn-${t.role === "user" ? "user" : "assistant"}`}>
-              <span className="turn-role" lang="en">
-                {t.role === "user" ? "Customer" : "Agent"} · turn {t.index + 1}
-              </span>
-              <p className="turn-text">{t.content}</p>
-            </div>
-          ))}
+    <dialog
+      ref={ref}
+      className="audit-dialog"
+      aria-label={`Audit call ${call.interaction_id}`}
+      onClose={onClose}
+      // A click on the backdrop lands on the dialog itself, never on its content.
+      onClick={(e) => {
+        if (e.target === ref.current) ref.current?.close();
+      }}
+    >
+      <div className="audit-dialog-head">
+        <div style={{ flex: "1 1 auto", minWidth: 0 }}>
+          <h2>
+            {text(call.customer_name)} · <span className="figure">{call.interaction_id}</span>
+          </h2>
+          <p className="card-sub" style={{ margin: 0 }}>
+            Call {position} of {total} · {call.language} · {dayIst(call.started_at)}{" "}
+            {clockIst(call.started_at)} IST · {duration(call.duration_s)} · {call.turns} turns
+          </p>
         </div>
-      </Section>
 
-      <div style={{ display: "grid", gap: "var(--s4)" }}>
-        <Section title="What was fed to the agent" subtitle="Check these against what was said">
-          <p className="figure" style={{ margin: 0, fontSize: "var(--t-micro)", lineHeight: 1.7 }}>
-            {call.pre_call || <Nul />}
-          </p>
-          <p style={{ marginBottom: 0 }}>
-            <a className="btn btn-ghost" href={call.recording_url} target="_blank" rel="noreferrer">
-              <ExternalLink size={14} aria-hidden /> Recording
-            </a>
-          </p>
-        </Section>
+        <Saved state={state} error={error} filled={filled} />
 
-        <Section title="Your audit" tone="sage">
-          <form onSubmit={save} style={{ display: "grid", gap: "var(--s3)" }}>
-            <Pick
-              id="f-info"
-              label="During-call info accuracy"
-              value={form.info_accuracy}
-              options={options.info_accuracy}
-              onChange={set("info_accuracy")}
-            />
-            <Pick
-              id="f-flow"
-              label="Call flow"
-              value={form.call_flow}
-              options={options.call_flow}
-              onChange={set("call_flow")}
-            />
-
-            {/* The platform's label sits beside the reviewer's own call rather
-                than being re-picked: they are two different judgements and the
-                report needs both. */}
-            <div className="field">
-              <label>Platform disposition</label>
-              <div>
-                <span className="figure">{text(call.disposition)}</span>{" "}
-                <VerdictPill verdict={call.disposition_verdict} />
-              </div>
-            </div>
-
-            <Pick
-              id="f-verdict"
-              label="Final disposition"
-              value={form.verdict}
-              options={options.verdicts}
-              onChange={set("verdict")}
-            />
-
-            <div className="field">
-              <label htmlFor="f-notes">Notes</label>
-              <textarea
-                id="f-notes"
-                className="text-input"
-                rows={4}
-                value={form.notes}
-                onChange={set("notes")}
-              />
-            </div>
-
-            {error ? <ErrorState error={error} /> : null}
-
-            <div className="card-actions">
-              <button type="submit" className="btn btn-primary" disabled={busy}>
-                {busy ? "Saving" : "Save"}
-              </button>
-              {/* Notes alone is a draft; a call only counts as audited once a
-                  final disposition is picked, which is what the report asks for. */}
-              {done ? (
-                <span className="sync-pill">
-                  <Check size={14} aria-hidden /> {form.verdict ? "Audited" : "Draft saved"}
-                </span>
-              ) : null}
-            </div>
-          </form>
-        </Section>
+        <button type="button" className="btn btn-icon btn-ghost" aria-label="Close" onClick={() => ref.current?.close()}>
+          <X size={18} aria-hidden />
+        </button>
       </div>
-    </div>
+
+      <div className="audit-dialog-body">
+        <div className="detail-split">
+          <Section title="Transcript" subtitle={`${call.transcript.length} turns`}>
+            <div className="transcript pane-scroll" lang={langOf(call.agent_id)}>
+              {call.transcript.map((t) => (
+                <div key={t.index} className={`turn turn-${t.role === "user" ? "user" : "assistant"}`}>
+                  <span className="turn-role" lang="en">
+                    {t.role === "user" ? "Customer" : "Agent"} · turn {t.index + 1}
+                  </span>
+                  <p className="turn-text">{t.content}</p>
+                </div>
+              ))}
+            </div>
+          </Section>
+
+          <div style={{ display: "grid", gap: "var(--s4)" }}>
+            <Section title="What was fed to the agent" subtitle="Check these against what was said">
+              <p className="figure" style={{ margin: 0, fontSize: "var(--t-micro)", lineHeight: 1.7 }}>
+                {call.pre_call || <Nul />}
+              </p>
+              <p style={{ marginBottom: 0 }}>
+                <a className="btn btn-ghost" href={call.recording_url} target="_blank" rel="noreferrer">
+                  <ExternalLink size={14} aria-hidden /> Recording
+                </a>
+              </p>
+            </Section>
+
+            <Section title="Your audit" tone="sage">
+              <div style={{ display: "grid", gap: "var(--s3)" }}>
+                <Pick
+                  id="f-info"
+                  label="During-call info accuracy"
+                  value={form.info_accuracy}
+                  options={options.info_accuracy}
+                  onChange={set("info_accuracy")}
+                />
+                <Pick
+                  id="f-flow"
+                  label="Call flow"
+                  value={form.call_flow}
+                  options={options.call_flow}
+                  onChange={set("call_flow")}
+                />
+
+                {/* The platform's label sits beside the reviewer's own call rather
+                    than being re-picked: they are two different judgements and the
+                    report needs both. */}
+                <div className="field">
+                  <label>Platform disposition</label>
+                  <div>
+                    <span className="figure">{text(call.disposition)}</span>{" "}
+                    <VerdictPill verdict={call.disposition_verdict} />
+                  </div>
+                </div>
+
+                <Pick
+                  id="f-verdict"
+                  label="Final disposition"
+                  value={form.verdict}
+                  options={options.verdicts}
+                  onChange={set("verdict")}
+                />
+
+                <div className="field">
+                  <label htmlFor="f-notes">Notes</label>
+                  <textarea id="f-notes" className="text-input" rows={4} value={form.notes} onChange={set("notes")} />
+                </div>
+
+                {error ? <ErrorState error={new Error(error)} /> : null}
+
+                <div className="card-actions">
+                  {/* Straight to the next call without closing: the parent
+                      swaps in a new dialog, keyed by call, and this one's
+                      unmount flushes whatever was just picked. */}
+                  <button type="button" className="btn btn-primary" disabled={position >= total} onClick={onNext}>
+                    Next call
+                  </button>
+                  <button type="button" className="btn" onClick={() => ref.current?.close()}>
+                    Done for now
+                  </button>
+                </div>
+              </div>
+            </Section>
+          </div>
+        </div>
+      </div>
+    </dialog>
+  );
+}
+
+function Saved({ state, error, filled }: { state: SaveState; error: string | null; filled: number }) {
+  if (state === "failed") {
+    return (
+      <span className="autosave failed" role="status">
+        Not saved — {error}
+      </span>
+    );
+  }
+  if (state === "saving") {
+    return (
+      <span className="autosave" role="status">
+        Saving…
+      </span>
+    );
+  }
+  if (state === "saved") {
+    return (
+      <span className="autosave" role="status">
+        <Check size={13} aria-hidden /> Saved {filled}/3
+      </span>
+    );
+  }
+  return (
+    <span className="autosave" role="status">
+      Saves as you go
+    </span>
   );
 }
 
