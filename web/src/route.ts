@@ -9,23 +9,42 @@ import { useEffect, useState } from "react";
  */
 export type Route =
   | { name: "overview" }
-  | { name: "calls" }
+  /* variable/variableVerdict come from clicking a row on the Overview's
+     variable table: "show me the calls behind this number". They live in the
+     hash rather than in CallList state so the link is shareable and survives a
+     refresh, which is the whole point of clicking through to evidence. */
+  | { name: "calls"; variable?: string; variableVerdict?: "missed" | "wrong" }
   | { name: "call"; id: number }
   | { name: "manual" }
   | { name: "runs" };
 
 export function currentRoute(): Route {
-  const hash = window.location.hash.replace(/^#\/?/, "").split("?")[0] ?? "";
+  const [path, search] = window.location.hash.replace(/^#\/?/, "").split("?");
+  const hash = path ?? "";
   const call = /^calls\/(\d+)$/.exec(hash);
   if (call) return { name: "call", id: Number(call[1]) };
-  if (hash === "calls") return { name: "calls" };
+  if (hash === "calls") {
+    const p = new URLSearchParams(search ?? "");
+    const vv = p.get("vv");
+    return {
+      name: "calls",
+      variable: p.get("variable") || undefined,
+      variableVerdict: vv === "missed" || vv === "wrong" ? vv : undefined,
+    };
+  }
   if (hash === "manual") return { name: "manual" };
   if (hash === "runs") return { name: "runs" };
   return { name: "overview" };
 }
 
 export function href(route: Route): string {
-  return route.name === "call" ? `#/calls/${route.id}` : `#/${route.name}`;
+  if (route.name === "call") return `#/calls/${route.id}`;
+  if (route.name === "calls" && route.variable) {
+    const p = new URLSearchParams({ variable: route.variable });
+    if (route.variableVerdict) p.set("vv", route.variableVerdict);
+    return `#/calls?${p}`;
+  }
+  return `#/${route.name}`;
 }
 
 export function navigate(route: Route): void {

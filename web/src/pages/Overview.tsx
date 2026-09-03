@@ -1,6 +1,17 @@
 import { useResource } from "../api/client";
 import type { Summary } from "../api/types";
 import { ErrorState, LoadingBlock, Section, num, pct } from "../components/common";
+import { href } from "../route";
+
+/**
+ * A count in this table is a question — every figure that stands for a set of
+ * calls links to that set. Zero is not a link: there is nothing to open, and a
+ * dead link that lands on an empty page is worse than plain text.
+ */
+function Errors({ name, verdict, n }: { name: string; verdict?: "missed" | "wrong"; n: number }) {
+  if (n === 0) return <>{num(n)}</>;
+  return <a href={href({ name: "calls", variable: name, variableVerdict: verdict })}>{num(n)}</a>;
+}
 
 /** Segment width, floored so a small-but-real slice never disappears entirely. */
 function share(part: number, whole: number): string {
@@ -126,7 +137,7 @@ export function OverviewPage({ date }: { date: string }) {
 
             <Section
               title="Variable accuracy"
-              subtitle="Worst first. Accuracy is correct out of what was spoken — a value the agent never said is counted under missed, not scored. A wrong value was said out loud to a customer."
+              subtitle="Worst first. Click any missed or wrong count to open those calls. Accuracy is correct out of what was spoken — a value the agent never said is counted under missed, not scored. A wrong value was said out loud to a customer."
               wide
             >
               <div className="table-wrap">
@@ -148,12 +159,20 @@ export function OverviewPage({ date }: { date: string }) {
                       .map((v, i) => (
                         <tr key={v.name} className={i < 3 ? "worst" : undefined}>
                           <th scope="row" className="var-name" style={{ textAlign: "left" }}>
-                            {v.name}
+                            {v.missed + v.wrong > 0 ? (
+                              <a href={href({ name: "calls", variable: v.name })}>{v.name}</a>
+                            ) : (
+                              v.name
+                            )}
                           </th>
                           <td className="num">{num(v.required_in)}</td>
                           <td className="num">{num(v.correct)}</td>
-                          <td className="num">{num(v.missed)}</td>
-                          <td className="num">{num(v.wrong)}</td>
+                          <td className="num">
+                            <Errors name={v.name} verdict="missed" n={v.missed} />
+                          </td>
+                          <td className="num">
+                            <Errors name={v.name} verdict="wrong" n={v.wrong} />
+                          </td>
                           <td className="num">{pct(v.accuracy)}</td>
                           <td>
                             <Bar value={v.accuracy} />

@@ -132,7 +132,9 @@ export default function App() {
 
         <main id="content" tabIndex={-1}>
           {route.name === "overview" ? <OverviewPage date={date} /> : null}
-          {route.name === "calls" ? <CallListPage date={date} /> : null}
+          {route.name === "calls" ? (
+            <CallListPage date={date} variable={route.variable} variableVerdict={route.variableVerdict} />
+          ) : null}
           {route.name === "call" ? <CallDetailPage id={route.id} /> : null}
           {route.name === "manual" ? <ManualAuditPage /> : null}
           {route.name === "runs" ? <RunsPage /> : null}

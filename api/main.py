@@ -57,12 +57,26 @@ LIST_COLS = ("interaction_id, agent_id, campaign_id, lead_id, started_at, durati
              "verification_error, summary")
 
 
-def _filters(date, agent_id, verdict, text):
+VAR_VERDICTS = ("missed", "wrong")
+
+
+def _filters(date, agent_id, verdict, text, variable=None, variable_verdict=None):
     where, args = ["audit_date = ?"], [date]
     if agent_id:
         where.append("agent_id = ?"); args.append(agent_id)
     if verdict:
         where.append("verdict = ?"); args.append(verdict)
+    if variable:
+        # The Overview's variable table is a list of questions ("who got `red`
+        # wrong?"); this is the answer. Verdicts live inside the `variables`
+        # JSON, so it takes json_each rather than a column. Unfiltered verdict
+        # means both kinds of error, which is what clicking the row name means.
+        want = ([variable_verdict] if variable_verdict in VAR_VERDICTS else list(VAR_VERDICTS))
+        where.append(
+            "EXISTS (SELECT 1 FROM json_each(calls.variables) v "
+            f"WHERE json_extract(v.value,'$.name') = ? "
+            f"AND json_extract(v.value,'$.verdict') IN ({','.join('?' * len(want))}))")
+        args += [variable, *want]
     if text:
         where.append("(IFNULL(reg_no,'') LIKE ? OR IFNULL(policy_no,'') LIKE ? "
                      "OR IFNULL(customer_name,'') LIKE ? OR CAST(interaction_id AS TEXT) LIKE ?)")
@@ -151,8 +165,9 @@ def summary(date: str | None = None):
 
 @app.get("/api/calls")
 def calls(date: str | None = None, agent_id: int | None = None, verdict: str | None = None,
-          q_: str | None = Query(None, alias="q"), page: int = 1, page_size: int = 50):
-    where, args = _filters(date or latest_date(), agent_id, verdict, q_)
+          q_: str | None = Query(None, alias="q"), variable: str | None = None,
+          variable_verdict: str | None = None, page: int = 1, page_size: int = 50):
+    where, args = _filters(date or latest_date(), agent_id, verdict, q_, variable, variable_verdict)
     total = q(f"SELECT COUNT(*) c FROM calls WHERE {where}", args)
     page, page_size = max(1, page), min(max(1, page_size), 500)
     items = q(f"SELECT {LIST_COLS} FROM calls WHERE {where} ORDER BY started_at, interaction_id "
@@ -184,9 +199,10 @@ REC_BASE = "https://formi-prod-2.s3.eu-north-1.amazonaws.com/onboarding/"
 
 
 @app.get("/api/export.csv")
-def export_csv(date: str | None = None, agent_id: int | None = None, verdict: str | None = None):
+def export_csv(date: str | None = None, agent_id: int | None = None, verdict: str | None = None,
+               variable: str | None = None, variable_verdict: str | None = None):
     date = date or latest_date()
-    where, args = _filters(date, agent_id, verdict, None)
+    where, args = _filters(date, agent_id, verdict, None, variable, variable_verdict)
     rows = q(f"SELECT * FROM calls WHERE {where} ORDER BY started_at, interaction_id", args)
     buf = io.StringIO()
     w = csv.DictWriter(buf, CSV_COLS, extrasaction="ignore")

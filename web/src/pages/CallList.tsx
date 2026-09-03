@@ -7,12 +7,23 @@ import { href } from "../route";
 
 const PAGE_SIZE = 50;
 
-function query(filters: { date: string; agent: string; verdict: string; q: string }, page?: number): string {
+type Filters = {
+  date: string;
+  agent: string;
+  verdict: string;
+  q: string;
+  variable?: string;
+  variableVerdict?: "missed" | "wrong";
+};
+
+function query(filters: Filters, page?: number): string {
   const p = new URLSearchParams();
   if (filters.date) p.set("date", filters.date);
   if (filters.agent) p.set("agent_id", filters.agent);
   if (filters.verdict) p.set("verdict", filters.verdict);
   if (filters.q) p.set("q", filters.q);
+  if (filters.variable) p.set("variable", filters.variable);
+  if (filters.variableVerdict) p.set("variable_verdict", filters.variableVerdict);
   if (page !== undefined) {
     p.set("page", String(page));
     p.set("page_size", String(PAGE_SIZE));
@@ -20,7 +31,15 @@ function query(filters: { date: string; agent: string; verdict: string; q: strin
   return p.toString();
 }
 
-export function CallListPage({ date }: { date: string }) {
+export function CallListPage({
+  date,
+  variable,
+  variableVerdict,
+}: {
+  date: string;
+  variable?: string;
+  variableVerdict?: "missed" | "wrong";
+}) {
   const [agent, setAgent] = useState("");
   const [verdict, setVerdict] = useState("");
   const [q, setQ] = useState("");
@@ -31,9 +50,9 @@ export function CallListPage({ date }: { date: string }) {
 
   // Page 4 of one day is rarely page 4 of another, and an out-of-range page
   // reads as "no calls" when the day is in fact full of them.
-  useEffect(() => setPage(1), [date]);
+  useEffect(() => setPage(1), [date, variable, variableVerdict]);
 
-  const filters = { date, agent, verdict, q: applied };
+  const filters: Filters = { date, agent, verdict, q: applied, variable, variableVerdict };
   const { data, error, loading } = useResource<CallsPage>(date ? `/calls?${query(filters, page)}` : null);
   const pages = data ? Math.max(1, Math.ceil(data.total / data.page_size)) : 1;
 
@@ -49,6 +68,20 @@ export function CallListPage({ date }: { date: string }) {
       <div className="page-head">
         <h1>Calls</h1>
         <p>{data ? `${data.total} calls match on ${date}` : "Loading calls"}</p>
+        {/* Arrived from the Overview's variable table. Say so in words and give
+            the way back out, or the page looks like it has simply lost calls. */}
+        {variable ? (
+          <p className="flags">
+            <span className="tag">
+              {variableVerdict === "missed"
+                ? `${variable} never spoken`
+                : variableVerdict === "wrong"
+                  ? `${variable} said wrong`
+                  : `${variable} missed or wrong`}
+            </span>
+            <a href={href({ name: "calls" })}>Clear</a>
+          </p>
+        ) : null}
       </div>
 
       <div className="workspace">
@@ -114,8 +147,9 @@ export function CallListPage({ date }: { date: string }) {
           ) : data.items.length === 0 ? (
             <div className="empty-state">
               <strong>No calls match these filters on {date}</strong>
-              Clear the search, pick a different verdict, or choose another audit
-              date.
+              {variable
+                ? `No call on this day has ${variable} recorded as an error. Clear the filter, or pick another audit date.`
+                : "Clear the search, pick a different verdict, or choose another audit date."}
             </div>
           ) : (
             <div className="table-wrap">
