@@ -306,15 +306,25 @@ def _mmss(seconds) -> str:
     return f"{s // 60}:{s % 60:02d}"
 
 
-def report(date_from: str, date_to: str) -> list[dict]:
+def report(date_from: str, date_to: str, agent_id: int | None = None) -> list[dict]:
+    """Submitted audits as report rows. `agent_id` narrows to one language.
+
+    Filtered on agent_id rather than the "Language" column it produces: the
+    column is derived (127 -> Tamil, everything else Hindi), so matching on the
+    word would tie the filter to a label that is only ever computed for display.
+    """
     check_date(date_from)
     check_date(date_to)
+    where, args = "m.audit_date BETWEEN ? AND ?", [date_from, date_to]
+    if agent_id is not None:
+        where += " AND calls.agent_id = ?"
+        args.append(int(agent_id))
     with _db() as c:
         rows = [dict(r) for r in c.execute(
             f"SELECT m.*, {_CALL_COLS} FROM manual_audits m "
             "JOIN calls ON calls.interaction_id = m.interaction_id "
-            "WHERE m.audit_date BETWEEN ? AND ? "
-            "ORDER BY m.audit_date, m.auditor, calls.started_at", (date_from, date_to))]
+            f"WHERE {where} "
+            "ORDER BY m.audit_date, m.auditor, calls.started_at", args)]
     out = []
     for r in rows:
         h = _hydrate(r)

@@ -178,6 +178,28 @@ def test_report_carries_the_workbook_columns():
     assert r["Pre-Call"] == "RED: 2026-09-07"
 
 
+def test_report_can_be_narrowed_to_one_language():
+    """The download filter must cut rows, not just relabel them.
+
+    A filter that returns every row with the Language column merely set looks
+    right in the UI and is wrong in the file the reviewer opens.
+    """
+    _seed(90, 10)
+    M.queue(DATE, "HV")
+    both = M.report(DATE, DATE)
+    hindi = M.report(DATE, DATE, 125)
+    tamil = M.report(DATE, DATE, 127)
+
+    assert {r["Language"] for r in hindi} == {"Hindi"}
+    assert {r["Language"] for r in tamil} == {"Tamil"}
+    # Nothing invented and nothing dropped: the two halves are exactly the whole.
+    assert len(hindi) + len(tamil) == len(both)
+    assert tamil, "the Tamil half is empty -- the deal or the filter is broken"
+
+    ids = {r["Interaction ID"] for r in both}
+    assert {r["Interaction ID"] for r in hindi} | {r["Interaction ID"] for r in tamil} == ids
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

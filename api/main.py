@@ -349,11 +349,12 @@ def manual_submit(interaction_id: int, auditor: str, body: SubmitIn,
 
 
 @app.get("/api/manual/export.csv")
-def manual_export(date_from: str | None = None, date_to: str | None = None):
+def manual_export(date_from: str | None = None, date_to: str | None = None,
+                  agent_id: int | None = None):
     frm = date_from or MANUAL.default_date()
     to = date_to or frm
     try:
-        rows = MANUAL.report(frm, to)
+        rows = MANUAL.report(frm, to, agent_id)
     except ValueError as e:
         raise HTTPException(422, str(e))
     buf = io.StringIO()
@@ -361,6 +362,11 @@ def manual_export(date_from: str | None = None, date_to: str | None = None):
     w.writeheader()
     w.writerows(rows)
     name = f"manual_audits_{frm}.csv" if frm == to else f"manual_audits_{frm}_to_{to}.csv"
+    # The language goes in the filename, not just the rows: two downloads of the
+    # same day otherwise land in the reviewer's folder under one name, and the
+    # second silently overwrites the first.
+    if agent_id is not None:
+        name = name.replace(".csv", f"_{'tamil' if agent_id == 127 else 'hindi'}.csv")
     return Response(
         content="﻿" + buf.getvalue(),  # BOM: Excel and the Tamil transcript column
         media_type="text/csv; charset=utf-8",

@@ -34,6 +34,10 @@ export function ManualAuditPage() {
   const [who, setWho] = useState(() => localStorage.getItem(REMEMBER) ?? "");
   const [date, setDate] = useState("");
   const [open, setOpen] = useState<number | null>(null);
+  // Download-only. It deliberately does NOT narrow the queue: a reviewer's ten
+  // are dealt across both languages on purpose, and quietly hiding half of them
+  // would look like the deal was short.
+  const [lang, setLang] = useState("");
   // Bumped after every save so the queue, and the progress beside it, both
   // re-read rather than showing an answer that is one save stale.
   const [saved, setSaved] = useState(0);
@@ -73,9 +77,27 @@ export function ManualAuditPage() {
           subtitle="Every answer saves itself, so you can stop anywhere and pick it up later."
           wide
           actions={
-            <a className="btn" href={`${API_BASE}/manual/export.csv?date_from=${day}&date_to=${day}`} download>
-              <Download size={14} aria-hidden /> Download report
-            </a>
+            <>
+              <select
+                className="select-input"
+                aria-label="Language to download"
+                value={lang}
+                onChange={(e) => setLang(e.target.value)}
+              >
+                <option value="">Both languages</option>
+                <option value="125">Hindi only</option>
+                <option value="127">Tamil only</option>
+              </select>
+              <a
+                className="btn"
+                href={`${API_BASE}/manual/export.csv?date_from=${day}&date_to=${day}${
+                  lang ? `&agent_id=${lang}` : ""
+                }`}
+                download
+              >
+                <Download size={14} aria-hidden /> Download report
+              </a>
+            </>
           }
         >
           <div className="toolbar">
