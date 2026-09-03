@@ -1,7 +1,10 @@
 # Call audits — engine + API
 
 Audits Chola renewal voice-agent calls on one axis: **variables** — did the agent
-say the injected value, and say it right. The score is that, out of 100.
+say the injected value, and say it right. The score is that, out of 100 — and it
+grades **spoken values only**: `ok / (ok + wrong)`. A value the agent never said
+is reported (`missed` column, `missing_variable` flag, `warn` verdict) but not
+scored, because there is no spoken value to be accurate about.
 
 Flow and disposition verification were removed on 3 Sep 2026. Flow detection
 still runs, but only to decide how far a call got, so a call that died in the

@@ -126,7 +126,7 @@ export function OverviewPage({ date }: { date: string }) {
 
             <Section
               title="Variable accuracy"
-              subtitle="Worst first. Correct + missed + wrong = required in. A wrong value was said out loud to a customer."
+              subtitle="Worst first. Accuracy is correct out of what was spoken — a value the agent never said is counted under missed, not scored. A wrong value was said out loud to a customer."
               wide
             >
               <div className="table-wrap">

@@ -85,7 +85,8 @@ export interface VariableStat {
   correct: number;
   missed: number;
   wrong: number;
-  /** Percent, 0-100: correct / required_in. */
+  /** Percent, 0-100: correct / (correct + wrong). Spoken values only —
+   *  `missed` is reported but not scored. 100 when nothing was spoken. */
   accuracy: number;
 }
 

@@ -386,13 +386,24 @@ never worse.** Everything that can fail a call is deterministic and re-derivable
 
 ## 7. Scoring and the verdict gate
 
-Score out of 100 (`run.py:_score`): **the proportion of considered variables that
-were said right.** One axis, no weights.
+Score out of 100 (`run.py:_score`): **of the values the agent actually said, the
+proportion said right** - `ok / (ok + wrong)`. One axis, no weights.
 
-"Considered" excludes `n/a` and `not_reached`, so a call that ended early is
-scored on what it actually had the chance to do. A call with nothing checkable
-scores 100, not 0 - there is no evidence of anything wrong, and a 0 would put an
-innocent call at the top of a worst-first list.
+Only *spoken* values are graded, as of 3 Sep 2026. A variable the agent never
+said (`missed`) has no spoken value to be accurate about, so it does not enter
+the denominator. It is not swept away: it still raises `missing_variable`, still
+counts in `variables_failed`, still holds the call at `warn`, and still has its
+own column in the Overview table. It simply cannot make the accuracy figure read
+as though a wrong number was said to a customer, which is what the figure is for.
+
+`not_reached` and `n/a` were already excluded, so a call that ended early is
+never marked down for values it had no chance to reach. A call with nothing
+spoken scores 100, not 0 - there is no evidence of anything wrong, and a 0 would
+put an innocent call at the top of a worst-first list.
+
+Consequence worth knowing: an agent that says nothing at all scores 100 and
+warns. The score answers "was what was said correct", not "was the script
+completed" - read it next to the `missed` column, never alone.
 
 It was 50 variables / 20 flow / 30 disposition until 3 Sep 2026. Rows audited
 before that date still carry a score on the old scale; re-running a day

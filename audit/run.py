@@ -10,6 +10,7 @@ python -m audit.run                 audit AUDIT_DATE
 python -m audit.run --date 2026-08-30
 python -m audit.run --ids 5681202,5681544
 python -m audit.run --no-llm        rules only (fast, for checking the matcher)
+python -m audit.run --rescore       re-score stored rows after a formula change
 """
 from __future__ import annotations
 
@@ -64,16 +65,21 @@ def _turns(row) -> list[dict]:
 
 
 def _score(vars_):
-    """The whole score: what fraction of the checkable variables were said right.
+    """The whole score: of the values the agent actually said, how many were right.
 
-    A call with nothing to check scores 100, not 0 -- there was no opportunity to
-    get anything wrong, and a day of short calls must not read as a day of bad
-    ones.
+    A value the agent never said is not graded -- there is no spoken value to be
+    accurate about. Silence is still reported: it flags `missing_variable` and
+    holds the call at `warn`, so a skipped disclosure never disappears. It just
+    no longer drags the accuracy figure, which answers one question only -- when
+    the agent read a value to the customer, was it the customer's value?
+
+    A call with nothing spoken scores 100, not 0: no opportunity to get anything
+    wrong, and a day of short calls must not read as a day of bad ones.
     """
-    considered = [v for v in vars_ if v["verdict"] in ("ok", "missed", "wrong")]
-    if not considered:
-        return 100.0, considered
-    return round(100.0 * sum(v["verdict"] == "ok" for v in considered) / len(considered), 1), considered
+    spoken = [v for v in vars_ if v["verdict"] in ("ok", "wrong")]
+    if not spoken:
+        return 100.0, spoken
+    return round(100.0 * sum(v["verdict"] == "ok" for v in spoken) / len(spoken), 1), spoken
 
 
 def audit_one(row: dict, llm: bool, cached: dict | None) -> dict:
@@ -129,7 +135,11 @@ def audit_one(row: dict, llm: bool, cached: dict | None) -> dict:
                             turn_index=v.get("turn_index") if isinstance(v.get("turn_index"), int) else None,
                             spoken=True)
 
-    score, considered = _score(vars_)
+    # The score grades spoken values only; the verdict and flags still see the
+    # silences, so an agent that skips a required disclosure is not scored down
+    # but is still held at `warn` and counted in `variables_failed`.
+    score, _spoken = _score(vars_)
+    considered = [v for v in vars_ if v["verdict"] in ("ok", "missed", "wrong")]
     failed = sum(v["verdict"] in ("missed", "wrong") for v in considered)
     if any(v["verdict"] == "wrong" for v in considered):
         flags.append("wrong_variable")
@@ -260,12 +270,46 @@ def run(date: str, ids: list[int] | None = None, llm: bool = True, save_db: bool
     return recs
 
 
+def rescore(date: str | None = None) -> dict:
+    """Recompute `score` from the verdicts already stored, no network, no GPU.
+
+    A scoring change leaves every audited row on the old formula, and a date
+    picker that silently mixes two scales is worse than either. Only the score
+    moves: the verdicts in `variables` are the evidence and are not re-derived,
+    and verdict/flags/variables_failed do not depend on the formula.
+    """
+    conn = db()
+    where, args = ("WHERE audit_date = ?", (date,)) if date else ("", ())
+    rows = conn.execute(f"SELECT interaction_id, audit_date, score, variables "
+                        f"FROM calls {where}", args).fetchall()
+    moved, out = 0, {}
+    for r in rows:
+        if r["variables"] is None:
+            continue
+        new = _score(json.loads(r["variables"]))[0] if json.loads(r["variables"]) else None
+        if new is None or r["score"] is None:  # never audited; leave it null
+            continue
+        if abs(new - r["score"]) > 0.05:
+            moved += 1
+        conn.execute("UPDATE calls SET score=? WHERE interaction_id=?", (new, r["interaction_id"]))
+        out.setdefault(r["audit_date"], []).append(new)
+    conn.commit()
+    return {"rows": len(rows), "changed": moved,
+            "avg_by_date": {d: round(sum(s) / len(s), 1) for d, s in sorted(out.items())}}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", default=AUDIT_DATE)
     ap.add_argument("--ids", default=None)
     ap.add_argument("--no-llm", action="store_true")
+    ap.add_argument("--rescore", action="store_true",
+                    help="recompute scores from stored verdicts (all days unless --date); "
+                         "no fetch, no judge")
     a = ap.parse_args()
+    if a.rescore:
+        print(json.dumps(rescore(a.date if "--date" in sys.argv else None), indent=2))
+        return
     ids = [int(x) for x in a.ids.split(",")] if a.ids else None
     recs = run(a.date, ids, llm=not a.no_llm)
     n = {}

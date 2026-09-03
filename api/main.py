@@ -136,11 +136,15 @@ def summary(date: str | None = None):
                       **bucket([r for r in rows if r["agent_id"] == a])}
                      for a in sorted({r["agent_id"] for r in rows})],
         "variables": sorted(
+            # Accuracy is out of what was SPOKEN (correct + wrong), not out of
+            # required_in: a value the agent never said has no spoken value to
+            # be accurate about. `missed` stays as its own column so a skipped
+            # disclosure is still visible, it just does not score.
             # A percentage, not a fraction: the UI prints it with a % and sizes a
             # bar by it, and 0.48 rendered as "0.5%" read as a catastrophe.
             ({"name": k, **v,
-              "accuracy": round(100.0 * v["correct"] / v["required_in"], 1)
-              if v["required_in"] else 0.0} for k, v in var.items()),
+              "accuracy": round(100.0 * v["correct"] / (v["correct"] + v["wrong"]), 1)
+              if v["correct"] + v["wrong"] else 100.0} for k, v in var.items()),
             key=lambda d: d["accuracy"]),
     }
 

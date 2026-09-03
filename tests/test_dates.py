@@ -71,7 +71,9 @@ def main() -> None:
     v = a["variables"][0]
     assert v["correct"] + v["missed"] + v["wrong"] == v["required_in"], v
     assert (v["required_in"], v["correct"]) == (6, 2), v  # 2 calls x 3 counted, 'not_reached' ignored
-    assert v["accuracy"] == 33.3, v  # a percentage, not a fraction
+    # Accuracy is out of what was spoken: 2 ok of (2 ok + 2 wrong). The two
+    # 'missed' are reported in their own column and do not score.
+    assert v["accuracy"] == 50.0, v  # a percentage, not a fraction
 
     b = M.summary(DAY_B)
     assert b["date"] == DAY_B and b["totals"]["calls"] == 1, b["totals"]

@@ -63,6 +63,46 @@ def test_wrong_value_forces_fail():
     assert rec["score"] < 100
 
 
+def test_silence_is_reported_but_not_scored():
+    """Accuracy answers one question: when the agent read a value out, was it the
+    customer's value? A value never spoken has nothing to be accurate about, so
+    it must not move the number -- but it must still hold the call at warn."""
+    from audit.run import _score
+    v = lambda name, verdict: {"name": name, "verdict": verdict}  # noqa: E731
+
+    assert _score([v("a", "ok"), v("b", "ok")])[0] == 100.0
+    assert _score([v("a", "ok"), v("b", "missed")])[0] == 100.0, "silence must not score"
+    assert _score([v("a", "ok"), v("b", "wrong")])[0] == 50.0
+    assert _score([v("a", "ok"), v("b", "wrong"), v("c", "missed")])[0] == 50.0
+    # Nothing spoken at all: no opportunity to get anything wrong.
+    assert _score([v("a", "missed"), v("b", "not_reached")])[0] == 100.0
+    assert _score([])[0] == 100.0
+
+    from audit.run import audit_one
+    row = {"id": 2, "agent_id": 125, "campaign_id": 1, "lead_id": 1, "contact_id": "x",
+           "provider_sid": "s", "created_at": "2026-08-30", "status": "done", "call_stage": None,
+           "lead_stage_computed": "lead_link_sent_online", "duration_s": 60,
+           "additional_variables": {"customer_name": "Asha", "make": "Maruti", "model": "Swift",
+                                    "reg_no": "OD01AP4344", "red": "02-09-2026",
+                                    "ncb": "20", "dtd": "70", "premium": "10693"},
+           "messages": [
+               {"role": "assistant", "content": "Simran from Cholamandalam MS, Asha जी?"},
+               {"role": "user", "content": "हां"},
+               {"role": "assistant", "content": "record की जा रही है। आपकी Maruti Swift, number "
+                "O-D zero-one A-P four-three-four-four, policy two September को expire"},
+               {"role": "user", "content": "ठीक है बताइए"},
+               {"role": "assistant", "content": "renewal premium है ten thousand six hundred "
+                "ninety-three rupees"},
+               {"role": "user", "content": "हां भेज दीजिए"},
+               {"role": "assistant", "content": "Link भेज दिया है। धन्यवाद।"}]}
+    rec = audit_one(row, llm=False, cached=None)
+    missed = [v_["name"] for v_ in rec["variables"] if v_["verdict"] == "missed"]
+    assert missed, "ncb and dtd were never spoken; the fixture is meant to have silences"
+    assert rec["score"] == 100.0, f"spoken values were all right: {rec['score']}"
+    assert rec["verdict"] == "warn" and "missing_variable" in rec["flags"]
+    assert rec["variables_failed"] == len(missed), "silence still counted as not-right"
+
+
 def test_ground_truth_fixture_is_deidentified():
     f = Path(__file__).parent / "ground_truth_labels_2026-08-27.csv"
     rows = list(csv.DictReader(f.open(encoding="utf-8")))
