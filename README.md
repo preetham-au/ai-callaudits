@@ -29,6 +29,9 @@ Qwen sees one call at a time: compact rubric (≤1200 tok) + transcript (≤4000
 tok, middle-dropped if it overruns). Results are cached in `llm_cache` by
 interaction id, so re-running after a scoring change costs no GPU time.
 
+Full design record, with pipeline diagrams and the reasoning behind each
+decision: [docs/architecture.md](docs/architecture.md).
+
 ## Layout
 
 ```
