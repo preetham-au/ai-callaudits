@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { ArrowLeft, CornerDownRight } from "lucide-react";
 import { useResource } from "../api/client";
-import type { CallDetail, FlowCheck, VariableCheck, Verdict } from "../api/types";
+import type { CallDetail, VariableCheck, Verdict } from "../api/types";
 import {
   ErrorState,
   LoadingBlock,
@@ -90,18 +90,6 @@ function VariableRow({ v, onCite }: { v: VariableCheck; onCite: (i: number) => v
   );
 }
 
-function FlowRow({ f, onCite }: { f: FlowCheck; onCite: (i: number) => void }) {
-  return (
-    <VerdictRow name={`${f.step}. ${f.label}`} verdict={f.verdict} turnIndex={f.turn_index} onCite={onCite}>
-      <span className="verdict-meta">
-        <span className="tag">{f.observed ? "Observed" : "Not observed"}</span>
-        {f.required ? <span className="tag">Required</span> : null}
-        {f.note ? <span>{f.note}</span> : null}
-      </span>
-    </VerdictRow>
-  );
-}
-
 export function CallDetailPage({ id }: { id: number }) {
   const { data, error, loading } = useResource<CallDetail>(`/calls/${id}`);
   const [cited, setCited] = useState<number | null>(null);
@@ -159,10 +147,10 @@ export function CallDetailPage({ id }: { id: number }) {
             </div>
             <div className="metric">
               <span className="metric-label">Disposition</span>
-              <span className="metric-value" style={{ fontSize: "var(--t-lead)" }}>
-                <VerdictPill verdict={data.disposition_verdict} />
+              <span className="metric-value figure" style={{ fontSize: "var(--t-lead)" }}>
+                {data.disposition ?? "null"}
               </span>
-              <span className="metric-note figure">{data.disposition ?? "null"}</span>
+              <span className="metric-note">as the platform labelled it</span>
             </div>
             <div className="metric">
               <span className="metric-label">Variables failed</span>
@@ -182,8 +170,6 @@ export function CallDetailPage({ id }: { id: number }) {
           <dl className="kv">
             <dt>Verfication Error</dt>
             <dd>{text(data.verification_error)}</dd>
-            <dt>Dispostion Error</dt>
-            <dd>{text(data.disposition_error)}</dd>
           </dl>
         </Section>
 
@@ -219,44 +205,6 @@ export function CallDetailPage({ id }: { id: number }) {
             </Section>
 
             <div style={{ display: "grid", gap: "var(--s4)" }}>
-              {/* Disposition first: it is the most common human finding, so it does
-                  not go below the variables. */}
-              <Section title="Disposition" subtitle="Does the assigned label match what the call shows?">
-                {/* Contract says this object is always present. If it is not, say so
-                    rather than rendering an empty card that looks like a clean call. */}
-                {!data.disposition_check ? (
-                  <div className="error-state" role="alert">
-                    The API returned no <code>disposition_check</code> for this call.
-                  </div>
-                ) : (
-                <div className="verdict-list">
-                  <VerdictRow
-                    name={data.disposition_check.assigned ?? "null"}
-                    verdict={data.disposition_check.verdict}
-                    turnIndex={null}
-                    onCite={cite}
-                  >
-                    <dl className="kv">
-                      <dt>Assigned</dt>
-                      <dd className="expected">{text(data.disposition_check.assigned)}</dd>
-                      <dt>Expected</dt>
-                      <dd className="expected">{text(data.disposition_check.expected)}</dd>
-                      <dt>Source</dt>
-                      <dd>{text(data.disposition_check.source)}</dd>
-                      <dt>Reasoning</dt>
-                      <dd>{text(data.disposition_check.reasoning)}</dd>
-                      {data.disposition_check.note ? (
-                        <>
-                          <dt>Note</dt>
-                          <dd>{data.disposition_check.note}</dd>
-                        </>
-                      ) : null}
-                    </dl>
-                  </VerdictRow>
-                </div>
-                )}
-              </Section>
-
               <Section title="Variables" subtitle="Click a variable to jump to the turn it was judged on.">
                 <div className="verdict-list">
                   {data.variables.map((v) => (
@@ -265,13 +213,6 @@ export function CallDetailPage({ id }: { id: number }) {
                 </div>
               </Section>
 
-              <Section title="Flow" subtitle={`Judged by ${data.judge.model}`}>
-                <div className="verdict-list">
-                  {data.flow.map((f) => (
-                    <FlowRow key={f.step} f={f} onCite={cite} />
-                  ))}
-                </div>
-              </Section>
             </div>
           </div>
         )}

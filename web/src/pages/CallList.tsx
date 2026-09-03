@@ -133,7 +133,6 @@ export function CallListPage({ date }: { date: string }) {
                     <th scope="col">Disposition</th>
                     <th scope="col" className="num">Vars failed</th>
                     <th scope="col">Verfication Error</th>
-                    <th scope="col">Dispostion Error</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -156,11 +155,8 @@ export function CallListPage({ date }: { date: string }) {
                       <td>
                         <VerdictPill verdict={c.verdict} />
                       </td>
-                      <td>
-                        <div className="figure" style={{ fontSize: "var(--t-micro)" }}>
-                          {text(c.disposition)}
-                        </div>
-                        <VerdictPill verdict={c.disposition_verdict} />
+                      <td className="figure" style={{ fontSize: "var(--t-micro)" }}>
+                        {text(c.disposition)}
                       </td>
                       <td className="num">
                         {c.variables_failed > 0 ? (
@@ -172,7 +168,6 @@ export function CallListPage({ date }: { date: string }) {
                       {/* The reviewers' own phrasing, misspellings included, so this
                           reads the same as the sheet they already work in. */}
                       <td>{text(c.verification_error)}</td>
-                      <td>{text(c.disposition_error)}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -88,20 +88,11 @@ export interface VariableStat {
   accuracy: number;
 }
 
-export interface FlowStat {
-  step: string;
-  label: string;
-  reached: number;
-  correct: number;
-  skipped: number;
-}
-
 export interface Summary {
   date: string;
   totals: Totals;
   by_agent: AgentSummary[];
   variables: VariableStat[];
-  flow: FlowStat[];
 }
 
 export interface CallRow {
@@ -120,14 +111,11 @@ export interface CallRow {
   verdict: CallVerdict;
   variables_checked: number;
   variables_failed: number;
-  flow_score: number | null;
   flags: string[];
   /** The label the platform's disposition engine assigned. */
   disposition: string | null;
-  disposition_verdict: CallVerdict;
   /** Reviewer phrasing, straight from the sheet — misspellings and all. */
   verification_error: string | null;
-  disposition_error: string | null;
   summary: string | null;
 }
 
@@ -158,30 +146,9 @@ export interface VariableCheck {
   checked_by: "rule" | "llm";
 }
 
-export interface FlowCheck {
-  step: string;
-  label: string;
-  required: boolean;
-  observed: boolean;
-  turn_index: number | null;
-  verdict: Verdict;
-  note: string | null;
-}
-
-export interface DispositionCheck {
-  assigned: string | null;
-  source: string | null;
-  reasoning: string | null;
-  expected: string | null;
-  verdict: Verdict;
-  note: string | null;
-}
-
 export interface CallDetail extends CallRow {
   transcript: Turn[];
   variables: VariableCheck[];
-  flow: FlowCheck[];
-  disposition_check: DispositionCheck;
   judge: { model: string; latency_ms: number | null; raw: string | null };
 }
 
@@ -192,7 +159,6 @@ export interface CallDetail extends CallRow {
 export interface ManualOptions {
   auditors: string[];
   info_accuracy: string[];
-  call_flow: string[];
   verdicts: string[];
   per_auditor: number;
   /** Yesterday in IST — the day a reviewer comes in to audit. */
@@ -218,11 +184,9 @@ export interface ManualItem {
   turns: number;
   /** What the platform decided, shown but not editable. */
   disposition: string | null;
-  disposition_verdict: CallVerdict;
   engine_verdict: CallVerdict;
   score: number | null;
   info_accuracy: string | null;
-  call_flow: string | null;
   verdict: string | null;
   notes: string | null;
   submitted_at: string | null;

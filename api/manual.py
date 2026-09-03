@@ -28,7 +28,6 @@ PER_AUDITOR = 10
 SEED_AUDITORS = ["Preetham", "HV", "Swarna"]
 
 INFO_ACCURACY = ("Accurate", "Inaccurate")
-CALL_FLOW = ("Followed", "Not Followed")
 # The workbook's dropdown for the reviewer's own call: it is a judgement on the
 # call, not a re-pick of the platform's disposition, which is shown beside it.
 VERDICTS = ("Pass", "Needs Coaching", "Escalate", "Incomplete", "Not Applicable")
@@ -103,15 +102,16 @@ def set_auditors(names: list[str]) -> list[dict]:
 # transcript never connected; a genuine voicemail is thirty seconds of an
 # answering machine. Both are the engine's job, not a person's.
 #
-# Voicemail is excluded by the platform label *only where the engine agrees* with
-# it: `disposition_verdict = 'fail'` on a voicemail label is the rule that fires
-# when a real conversation was mislabelled, and those are exactly the calls a
-# human most wants to hear.
+# Voicemail is excluded by the platform label only where the call is also short.
+# A real conversation mislabelled voicemail is exactly what a human most wants to
+# hear, and it gives itself away by having turns: a genuine answering machine
+# does not talk back. (This replaces the old `disposition_verdict = 'fail'`
+# carve-out, from when the engine still second-guessed the label.)
 _POOL = """
 SELECT interaction_id, agent_id FROM calls
  WHERE audit_date = ?
    AND verdict != 'no_transcript'
-   AND NOT (IFNULL(disposition,'') = 'voicemail_ivr' AND IFNULL(disposition_verdict,'') != 'fail')
+   AND NOT (IFNULL(disposition,'') = 'voicemail_ivr' AND turns < 6)
    AND turns >= ? AND IFNULL(duration_s, 0) >= ?
 """
 
@@ -208,7 +208,7 @@ def default_date() -> str:
 # Qualified: manual_audits and calls share interaction_id, audit_date and verdict.
 _CALL_COLS = ("calls.agent_id, calls.started_at, calls.duration_s, calls.customer_name, "
               "calls.reg_no, calls.policy_no, calls.provider_sid, calls.disposition, "
-              "calls.disposition_verdict, calls.verdict AS engine_verdict, calls.score, "
+              "calls.verdict AS engine_verdict, calls.score, "
               "calls.turns, calls.transcript, calls.variables")
 
 
@@ -276,16 +276,15 @@ def submit(date: str, auditor: str, interaction_id: int, body: dict) -> dict:
     call should not lose the fields they have already picked."""
     check_date(date)
     info = _one_of(body.get("info_accuracy"), INFO_ACCURACY, "info_accuracy")
-    flow = _one_of(body.get("call_flow"), CALL_FLOW, "call_flow")
     verdict = _one_of(body.get("verdict"), VERDICTS, "verdict")
     notes = (body.get("notes") or "").strip()[:NOTES_MAX] or None
     # "Submitted" means the reviewer has made their call; notes alone is a draft.
     done = datetime.now(IST).isoformat() if verdict else None
     with _db() as c:
         n = c.execute(
-            "UPDATE manual_audits SET info_accuracy=?, call_flow=?, verdict=?, notes=?, "
+            "UPDATE manual_audits SET info_accuracy=?, verdict=?, notes=?, "
             "submitted_at=? WHERE audit_date=? AND auditor=? AND interaction_id=?",
-            (info, flow, verdict, notes, done, date, auditor, interaction_id)).rowcount
+            (info, verdict, notes, done, date, auditor, interaction_id)).rowcount
     if not n:
         raise LookupError("that call is not assigned to you")
     return queue(date, auditor)
@@ -295,7 +294,7 @@ def submit(date: str, auditor: str, interaction_id: int, body: dict) -> dict:
 
 REPORT_COLS = ["Interaction ID", "Audit Owner", "Language", "Call Date", "Call Time (IST)",
                "Duration (mm:ss)", "Recording URL", "Pre-Call", "Transcript",
-               "During-Call Info Accuracy", "Call Flow", "Platform Disposition",
+               "During-Call Info Accuracy", "Platform Disposition",
                "Final Disposition", "Notes", "Engine Verdict", "Engine Score", "Submitted At"]
 
 
@@ -344,7 +343,6 @@ def report(date_from: str, date_to: str, agent_id: int | None = None) -> list[di
             "Transcript": "\n".join(f"{t['role'].upper()}: {t['content']}"
                                     for t in h["transcript"]),
             "During-Call Info Accuracy": h.get("info_accuracy") or "",
-            "Call Flow": h.get("call_flow") or "",
             "Platform Disposition": h.get("disposition") or "",
             "Final Disposition": h.get("verdict") or "",
             "Notes": h.get("notes") or "",

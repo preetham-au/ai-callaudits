@@ -32,7 +32,7 @@ app = FastAPI(title="Chola call audits", lifespan=lifespan)
 WEB = ROOT / "web" / "dist"
 
 AGENTS = {125: ("Simran", "Hindi"), 127: ("Aarthi", "Tamil")}
-_J = ("flags", "transcript", "variables", "flow", "disposition_check", "judge")
+_J = ("flags", "transcript", "variables", "judge")
 
 
 def q(sql: str, args=()) -> list[dict]:
@@ -53,8 +53,8 @@ def q(sql: str, args=()) -> list[dict]:
 
 LIST_COLS = ("interaction_id, agent_id, campaign_id, lead_id, started_at, duration_s, status, "
              "call_stage, customer_name, reg_no, policy_no, turns, score, verdict, "
-             "variables_checked, variables_failed, flow_score, flags, disposition, "
-             "disposition_verdict, verification_error, disposition_error, summary")
+             "variables_checked, variables_failed, flags, disposition, "
+             "verification_error, summary")
 
 
 def _filters(date, agent_id, verdict, text):
@@ -101,7 +101,7 @@ def dates():
 def summary(date: str | None = None):
     date = date or latest_date()
     rows = q(f"SELECT {LIST_COLS} FROM calls WHERE audit_date = ?", (date,))
-    det = q("SELECT variables, flow FROM calls WHERE audit_date = ? AND turns > 0", (date,))
+    det = q("SELECT variables FROM calls WHERE audit_date = ? AND turns > 0", (date,))
     aud = [r for r in rows if r["verdict"] != "no_transcript"]
     scored = [r["score"] for r in aud if r["score"] is not None]
 
@@ -113,14 +113,7 @@ def summary(date: str | None = None):
                 "fail": sum(r["verdict"] == "fail" for r in rs),
                 "avg_score": round(sum(s) / len(s), 1) if s else 0.0}
 
-    disp = defaultdict(lambda: {"calls": 0, "wrong": 0})
-    for r in aud:
-        d = disp[r["disposition"] or "(none)"]
-        d["calls"] += 1
-        d["wrong"] += r["disposition_verdict"] == "fail"
-
     var = defaultdict(lambda: {"required_in": 0, "spoken": 0, "missed": 0, "wrong": 0})
-    step = {}
     for r in det:
         for v in r["variables"]:
             if v["verdict"] not in ("ok", "missed", "wrong"):
@@ -130,33 +123,22 @@ def summary(date: str | None = None):
             s["spoken"] += v["verdict"] in ("ok", "wrong")
             s["missed"] += v["verdict"] == "missed"
             s["wrong"] += v["verdict"] == "wrong"
-        for f in r["flow"]:
-            s = step.setdefault(f["step"], {"step": f["step"], "label": f["label"],
-                                            "reached": 0, "correct": 0, "skipped": 0})
-            if f["required"] or f["observed"]:
-                s["reached"] += 1
-            s["correct"] += f["observed"]
-            s["skipped"] += f["required"] and not f["observed"]
 
     return {
         "date": date,
         "totals": {**bucket(rows), "no_transcript": sum(r["verdict"] == "no_transcript" for r in rows),
-                   "avg_score": round(sum(scored) / len(scored), 1) if scored else 0.0,
-                   "disposition_wrong": sum(r["disposition_verdict"] == "fail" for r in aud)},
-        "dispositions": sorted(
-            ({"assigned": k, "calls": v["calls"], "wrong": v["wrong"],
-              "accuracy": round((v["calls"] - v["wrong"]) / v["calls"], 3) if v["calls"] else 0.0}
-             for k, v in disp.items()), key=lambda d: -d["calls"]),
+                   "avg_score": round(sum(scored) / len(scored), 1) if scored else 0.0},
         "by_agent": [{"agent_id": a, "name": AGENTS.get(a, ("?", "?"))[0],
                       "language": AGENTS.get(a, ("?", "?"))[1],
                       **bucket([r for r in rows if r["agent_id"] == a])}
                      for a in sorted({r["agent_id"] for r in rows})],
         "variables": sorted(
+            # A percentage, not a fraction: the UI prints it with a % and sizes a
+            # bar by it, and 0.48 rendered as "0.5%" read as a catastrophe.
             ({"name": k, **v,
-              "accuracy": round((v["required_in"] - v["missed"] - v["wrong"]) / v["required_in"], 3)
+              "accuracy": round(100.0 * (v["required_in"] - v["missed"] - v["wrong"]) / v["required_in"], 1)
               if v["required_in"] else 0.0} for k, v in var.items()),
             key=lambda d: d["accuracy"]),
-        "flow": [step[k] for k in sorted(step)],
     }
 
 
@@ -212,7 +194,7 @@ def export_csv(date: str | None = None, agent_id: int | None = None, verdict: st
             "call_duration": r["duration_s"] if r["duration_s"] is not None else "",
             "Calling Summary": r["summary"] or "",
             "Verfication Error": r["verification_error"] or "NA",
-            "Dispostion Error": r["disposition_error"] or "NA",
+            "Dispostion Error": "NA",  # column kept for the client sheet; not verified
             "Remarks": "", "policy_no": r["policy_no"] or "",
         })
     return Response(
@@ -291,7 +273,6 @@ def put_schedule(body: ScheduleIn):
 
 class SubmitIn(BaseModel):
     info_accuracy: str | None = None
-    call_flow: str | None = None
     verdict: str | None = None
     notes: str | None = None
 
@@ -305,7 +286,6 @@ def manual_options():
     """Everything the form's dropdowns need, so the UI has no copy of the lists."""
     return {"auditors": [a["name"] for a in MANUAL.auditors()],
             "info_accuracy": list(MANUAL.INFO_ACCURACY),
-            "call_flow": list(MANUAL.CALL_FLOW),
             "verdicts": list(MANUAL.VERDICTS),
             "per_auditor": MANUAL.PER_AUDITOR,
             "default_date": MANUAL.default_date()}

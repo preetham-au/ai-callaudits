@@ -59,10 +59,10 @@ def _seed(hindi: int, tamil: int, junk: bool = True, other: int = 0) -> None:
         add(124)
     if junk:
         add(125, verdict="no_transcript", turns=0, duration_s=0)
-        add(125, disposition="voicemail_ivr", disposition_verdict="pass")
-        # A real conversation the platform called voicemail: the engine flags it,
-        # and it is exactly what a human should hear -- so it must stay in.
-        add(125, disposition="voicemail_ivr", disposition_verdict="fail")
+        add(125, disposition="voicemail_ivr", turns=2, duration_s=25)
+        # A real conversation the platform called voicemail: it talks back, and it
+        # is exactly what a human should hear -- so it must stay in.
+        add(125, disposition="voicemail_ivr", turns=12)
     c.commit()
     c.close()
     with M._db() as x:
@@ -117,7 +117,7 @@ def test_short_calls_are_a_top_up_not_a_blend():
     c = sqlite3.connect(TMP)
     for i in range(2000, 2040):
         c.execute("INSERT INTO calls (interaction_id, audit_date, agent_id, verdict, turns, "
-                  "duration_s, disposition_verdict) VALUES (?,?,125,'pass',3,20,'pass')",
+                  "duration_s) VALUES (?,?,125,'pass',3,20)",
                   (i, DATE))
     c.commit()
     c.close()
@@ -130,11 +130,11 @@ def test_voicemail_and_untranscribed_stay_out():
     with M._db() as c:
         pool = M._ordered_pool(c, DATE)
         got = {r["interaction_id"]: r for r in c.execute(
-            "SELECT interaction_id, verdict, disposition, disposition_verdict FROM calls")}
+            "SELECT interaction_id, verdict, disposition, turns FROM calls")}
     kept = [got[i] for i in pool]
     assert all(k["verdict"] != "no_transcript" for k in kept)
-    assert [k["disposition_verdict"] for k in kept] == ["fail"], kept
-    # ...and the mislabelled one is the one that survived.
+    # ...and the one voicemail-labelled call that survived is the talkative one.
+    assert [k["turns"] for k in kept] == [12], kept
 
 
 def test_a_thin_day_deals_what_it_has_without_crashing():
@@ -150,7 +150,7 @@ def test_submit_records_the_reviewers_call_and_refuses_other_peoples():
     q = M.queue(DATE, "Preetham")
     iid = q["items"][0]["interaction_id"]
     out = M.submit(DATE, "Preetham", iid, {
-        "info_accuracy": "Inaccurate", "call_flow": "Followed",
+        "info_accuracy": "Inaccurate",
         "verdict": "Needs Coaching", "notes": "quoted the wrong RED date"})
     row = next(i for i in out["items"] if i["interaction_id"] == iid)
     assert row["verdict"] == "Needs Coaching" and row["submitted_at"]

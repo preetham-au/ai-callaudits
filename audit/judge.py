@@ -1,9 +1,9 @@
 """Qwen judge. Only the residue the rules could not settle goes here.
 
-Three jobs per call: adjudicate the flow, adjudicate variables the rules only
-'missed' (absent, or merely phrased oddly?), and decide whether the platform's
-disposition matches the transcript — the last being the most common human
-finding and the only one no regex can do.
+One job per call: adjudicate the variables the rules only 'missed' — absent, or
+merely phrased oddly? Flow and disposition are no longer verified, so they are
+no longer asked about. The rubric still ships the workflow, because a variable
+is identified by the step it belongs to.
 """
 from __future__ import annotations
 
@@ -97,17 +97,13 @@ SYSTEM = (
 )
 
 _SCHEMA = """{
- "flow": {"steps_skipped": ["step2"], "collapsed": false, "note": "<12 words"},
  "variables": {"<only unresolved names>": {"verdict": "ok|missed|wrong", "turn_index": 3|null, "note": "<8 words"}},
- "disposition": {"verdict": "pass|fail", "expected": "<label from the list>", "turn_index": 4|null, "note": "<12 words"},
  "summary": "beat/ beat/ beat",
- "verification_error": "NA",
- "disposition_error": "NA"
+ "verification_error": "NA"
 }"""
 
 
-def build_prompt(rub: dict, turns: list[dict], residue: list[dict], disp: dict,
-                 labels: list[str]) -> tuple[str, bool]:
+def build_prompt(rub: dict, turns: list[dict], residue: list[dict]) -> tuple[str, bool]:
     tx, truncated = transcript_text(turns)
     unresolved = "\n".join(
         f"- {r['name']}: expected to be spoken as \"{r['expected_spoken']}\" "
@@ -118,23 +114,13 @@ def build_prompt(rub: dict, turns: list[dict], residue: list[dict], disp: dict,
 TRANSCRIPT ({len(turns)} turns, [i] is the turn index):
 {tx}
 
-The platform's disposition engine labelled this call: {disp.get('assigned') or 'none'}
-Its stated reasoning: {(disp.get('reasoning') or 'none')[:200]}
-Allowed labels: {', '.join(labels)}
-
 A rule-based matcher already checked every variable. These it could not find:
 {unresolved}
 
 Answer these, in this exact JSON shape:
-1. flow — which workflow steps the agent never delivered, and whether it crammed two steps into one turn.
-2. variables — ONLY the unresolved variables listed above (if the list says none, return an empty object). Do not mention any other variable. For each: "ok" if the transcript does say it (give the turn index), "missed" if the agent never said it, "wrong" if the agent said a different value for that field.
-3. disposition — does the assigned label match what the transcript shows?
-   Label meanings: hung_up = the customer disconnected early without engaging; voicemail_ivr = the call reached an answering machine or IVR and no human ever replied; lead_premium_quotation = the premium figure was actually quoted to a live customer; lead_link_sent_online = a payment link was actually sent; call_back = the customer asked to be called later; requested_human_agent_connect = the customer asked for a human; not_interested = the customer refused.
-   Default to "pass". Answer "pass" whenever the transcript is consistent with the label — a call that really was a hang-up IS correctly labelled hung_up. Answer "fail" only when the transcript plainly contradicts the label (premium quoted but labelled voicemail; no link sent but labelled link-sent; a real two-way conversation labelled hung_up).
-   ALWAYS give turn_index: the turn that proves your verdict (the hang-up turn, or the turn where the link was actually sent), null only if no single turn is responsible.
-4. summary — what happened, in clipped slash-separated beats in the reviewer register, e.g. "AI gave opening script and confirm customer name/ Customer said yes/ AI share premium and asking payment/ call drop". Max 40 words.
-5. verification_error — short reviewer-style phrase if a value was said wrong (e.g. "DTD and RED incorrect", "Vehicle details not confirm"), else "NA".
-6. disposition_error — reviewer-style phrase if the label is wrong, e.g. "Wrong Dispostion(it's a hung up call) but mention {disp.get('assigned') or 'x'}", else "NA".
+1. variables — ONLY the unresolved variables listed above (if the list says none, return an empty object). Do not mention any other variable. For each: "ok" if the transcript does say it (give the turn index), "missed" if the agent never said it, "wrong" if the agent said a different value for that field.
+2. summary — what happened, in clipped slash-separated beats in the reviewer register, e.g. "AI gave opening script and confirm customer name/ Customer said yes/ AI share premium and asking payment/ call drop". Max 40 words.
+3. verification_error — short reviewer-style phrase if a value was said wrong (e.g. "DTD and RED incorrect", "Vehicle details not confirm"), else "NA".
 
 {_SCHEMA}"""
     return user, truncated
@@ -167,11 +153,10 @@ def _parse(text: str) -> dict | None:
     return None
 
 
-def judge(rub: dict, turns: list[dict], residue: list[dict], disp: dict,
-          labels: list[str]) -> dict:
+def judge(rub: dict, turns: list[dict], residue: list[dict]) -> dict:
     """Never raises. A parse failure is recorded as a parse failure, not as a
     verdict — a 4B failing to close a brace must not become "the call failed"."""
-    user, truncated = build_prompt(rub, turns, residue, disp, labels)
+    user, truncated = build_prompt(rub, turns, residue)
     est = est_tokens(SYSTEM) + est_tokens(user)
     out = {"ok": False, "parsed": None, "raw": None, "latency_ms": None,
            "error": None, "est_prompt_tokens": est, "transcript_truncated": truncated}

@@ -89,33 +89,29 @@ interface Seed {
   score: number | null;
   failed: number;
   flags: string[];
-  /** The platform's label, and whether it survives contact with the transcript. */
+  /** The platform's label, shown as-is: the engine no longer second-guesses it. */
   disp: string | null;
-  dispVerdict: CallRow["disposition_verdict"];
   /* Reviewer phrasing, verbatim from the human sheet — misspellings included. */
   vErr: string | null;
-  dErr: string | null;
 }
 
-const HUNG_UP = "Wrong Dispostion(it's a hung up call) but mention lead_premium_quotation";
-
 const SEEDS: Seed[] = [
-  { name: "Rajesh Kumar", reg: "OD-27-C-4962", agent: 125, verdict: "fail", score: 41, failed: 2, flags: ["premium_wrong", "expiry_wrong"], disp: "lead_premium_quotation", dispVerdict: "pass", vErr: "DTD and RED incorrect", dErr: null },
-  { name: "Murugan S", reg: "TN-09-BK-1234", agent: 127, verdict: "warn", score: 74, failed: 0, flags: ["step4_partial"], disp: "lead_link_send", dispVerdict: "pass", vErr: null, dErr: null },
-  { name: "Sunita Devi", reg: "DL-08-CA-9911", agent: 125, verdict: "pass", score: 93, failed: 0, flags: [], disp: "lead_premium_quotation", dispVerdict: "pass", vErr: null, dErr: null },
-  { name: "Anand Raman", reg: "TN-22-AR-0450", agent: 127, verdict: "fail", score: 55, failed: 1, flags: ["ncb_wrong", "disposition_wrong"], disp: "lead_premium_quotation", dispVerdict: "fail", vErr: "NCB, DTD incorrect", dErr: HUNG_UP },
-  { name: null, reg: "MH-12-QQ-3321", agent: 125, verdict: "no_transcript", score: null, failed: 0, flags: ["never_connected"], disp: null, dispVerdict: "no_transcript", vErr: null, dErr: null },
-  { name: "Prakash Jha", reg: "UP-32-BN-7788", agent: 125, verdict: "pass", score: 88, failed: 0, flags: [], disp: "lead_link_send", dispVerdict: "pass", vErr: null, dErr: null },
-  { name: "Lakshmi Narayanan", reg: "TN-01-AZ-6612", agent: 127, verdict: "fail", score: 61, failed: 0, flags: ["discount_missed", "disposition_wrong"], disp: "lead_premium_quotation", dispVerdict: "fail", vErr: null, dErr: "Wrong Dispostion(lead link send ) but mention lead_premium_quotation" },
-  { name: "Imran Sheikh", reg: "RJ-14-CD-2020", agent: 125, verdict: "fail", score: 38, failed: 3, flags: ["premium_wrong", "step2_skipped"], disp: "lead_premium_quotation", dispVerdict: "pass", vErr: "Incorect RED shared", dErr: null },
-  { name: "Gopal Mehta", reg: "GJ-05-KL-1177", agent: 125, verdict: "pass", score: 91, failed: 0, flags: [], disp: "lead_link_send", dispVerdict: "pass", vErr: null, dErr: null },
-  { name: null, reg: null, agent: 125, verdict: "no_transcript", score: null, failed: 0, flags: ["never_connected"], disp: null, dispVerdict: "no_transcript", vErr: null, dErr: null },
-  { name: "Kavitha R", reg: "TN-37-BB-8080", agent: 127, verdict: "fail", score: 58, failed: 0, flags: ["disposition_wrong"], disp: "lead_premium_quotation", dispVerdict: "fail", vErr: null, dErr: "Wrong Dispostion(it's a hung up call) but mention voicemail_ivr" },
-  { name: "Deepak Verma", reg: "HR-26-DK-5544", agent: 125, verdict: "warn", score: 72, failed: 0, flags: ["expiry_missed"], disp: "lead_call_back", dispVerdict: "warn", vErr: null, dErr: "Incorrect dispostion" },
-  { name: "Selvam K", reg: "TN-11-CF-3390", agent: 127, verdict: "fail", score: 49, failed: 1, flags: ["premium_wrong"], disp: "lead_not_interested", dispVerdict: "pass", vErr: "Vehicle details not confirm", dErr: null },
-  { name: "Ritu Singh", reg: "MP-09-RS-4411", agent: 125, verdict: "pass", score: 96, failed: 0, flags: [], disp: "lead_link_send", dispVerdict: "pass", vErr: null, dErr: null },
-  { name: "Farhan Ali", reg: "TS-07-FA-6023", agent: 125, verdict: "fail", score: 64, failed: 0, flags: ["objection_unhandled", "disposition_wrong"], disp: "lead_premium_quotation", dispVerdict: "fail", vErr: null, dErr: HUNG_UP },
-  { name: null, reg: "KA-03-MN-9090", agent: 127, verdict: "no_transcript", score: null, failed: 0, flags: ["never_connected"], disp: null, dispVerdict: "no_transcript", vErr: null, dErr: null },
+  { name: "Rajesh Kumar", reg: "OD-27-C-4962", agent: 125, verdict: "fail", score: 41, failed: 2, flags: ["wrong_variable"], disp: "lead_premium_quotation", vErr: "DTD and RED incorrect" },
+  { name: "Murugan S", reg: "TN-09-BK-1234", agent: 127, verdict: "warn", score: 74, failed: 0, flags: ["missing_variable"], disp: "lead_link_send", vErr: null },
+  { name: "Sunita Devi", reg: "DL-08-CA-9911", agent: 125, verdict: "pass", score: 93, failed: 0, flags: [], disp: "lead_premium_quotation", vErr: null },
+  { name: "Anand Raman", reg: "TN-22-AR-0450", agent: 127, verdict: "fail", score: 55, failed: 1, flags: ["wrong_variable", "missing_variable"], disp: "lead_premium_quotation", vErr: "NCB, DTD incorrect" },
+  { name: null, reg: "MH-12-QQ-3321", agent: 125, verdict: "no_transcript", score: null, failed: 0, flags: [], disp: null, vErr: null },
+  { name: "Prakash Jha", reg: "UP-32-BN-7788", agent: 125, verdict: "pass", score: 88, failed: 0, flags: [], disp: "lead_link_send", vErr: null },
+  { name: "Lakshmi Narayanan", reg: "TN-01-AZ-6612", agent: 127, verdict: "fail", score: 61, failed: 0, flags: ["missing_variable"], disp: "lead_premium_quotation", vErr: null },
+  { name: "Imran Sheikh", reg: "RJ-14-CD-2020", agent: 125, verdict: "fail", score: 38, failed: 3, flags: ["wrong_variable", "short_call"], disp: "lead_premium_quotation", vErr: "Incorect RED shared" },
+  { name: "Gopal Mehta", reg: "GJ-05-KL-1177", agent: 125, verdict: "pass", score: 91, failed: 0, flags: [], disp: "lead_link_send", vErr: null },
+  { name: null, reg: null, agent: 125, verdict: "no_transcript", score: null, failed: 0, flags: [], disp: null, vErr: null },
+  { name: "Kavitha R", reg: "TN-37-BB-8080", agent: 127, verdict: "fail", score: 58, failed: 0, flags: ["missing_variable"], disp: "lead_premium_quotation", vErr: null },
+  { name: "Deepak Verma", reg: "HR-26-DK-5544", agent: 125, verdict: "warn", score: 72, failed: 0, flags: ["missing_variable"], disp: "lead_call_back", vErr: null },
+  { name: "Selvam K", reg: "TN-11-CF-3390", agent: 127, verdict: "fail", score: 49, failed: 1, flags: ["wrong_variable"], disp: "lead_not_interested", vErr: "Vehicle details not confirm" },
+  { name: "Ritu Singh", reg: "MP-09-RS-4411", agent: 125, verdict: "pass", score: 96, failed: 0, flags: [], disp: "lead_link_send", vErr: null },
+  { name: "Farhan Ali", reg: "TS-07-FA-6023", agent: 125, verdict: "fail", score: 64, failed: 0, flags: ["missing_variable"], disp: "lead_premium_quotation", vErr: null },
+  { name: null, reg: "KA-03-MN-9090", agent: 127, verdict: "no_transcript", score: null, failed: 0, flags: [], disp: null, vErr: null },
 ];
 
 const ROWS: CallRow[] = SEEDS.map((s, i) => {
@@ -137,12 +133,9 @@ const ROWS: CallRow[] = SEEDS.map((s, i) => {
     verdict: s.verdict,
     variables_checked: audited ? 11 : 0,
     variables_failed: s.failed,
-    flow_score: s.score === null ? null : Math.round(s.score * 0.2 * 10) / 10,
     flags: s.flags,
     disposition: s.disp,
-    disposition_verdict: s.dispVerdict,
     verification_error: s.vErr,
-    disposition_error: s.dErr,
     summary: audited
       ? "AI gave opening script and confirm customer name/ Customer said yes/ AI follow up recording script and share Vehicle details/ AI shared premium and discount/ AI shared payment link"
       : null,
@@ -152,7 +145,6 @@ const ROWS: CallRow[] = SEEDS.map((s, i) => {
 const MANUAL_OPTIONS: ManualOptions = {
   auditors: ["Preetham", "HV", "Swarna"],
   info_accuracy: ["Accurate", "Inaccurate"],
-  call_flow: ["Followed", "Not Followed"],
   verdicts: ["Pass", "Needs Coaching", "Escalate", "Incomplete", "Not Applicable"],
   per_auditor: 10,
   default_date: AUDIT_DATE,
@@ -179,11 +171,9 @@ const MANUAL_QUEUE: ManualItem[] = ROWS.filter((r) => r.verdict !== "no_transcri
     transcript: r.agent_id === 125 ? HINDI : TAMIL,
     turns: r.turns,
     disposition: r.disposition,
-    disposition_verdict: r.disposition_verdict,
     engine_verdict: r.verdict,
     score: r.score,
     info_accuracy: i === 0 ? "Accurate" : null,
-    call_flow: i === 0 ? "Followed" : null,
     verdict: i === 0 ? "Pass" : null,
     notes: i === 0 ? "Premium and RED date both read back correctly." : null,
     submitted_at: i === 0 ? `${AUDIT_DATE}T18:20:00+05:30` : null,
@@ -298,59 +288,6 @@ function detailFor(row: CallRow): CallDetail {
               checked_by: "rule",
             },
           ],
-    flow:
-      row.verdict === "no_transcript"
-        ? []
-        : [
-            { step: "1", label: "Identity confirmation", required: true, observed: true, turn_index: 0, verdict: "pass", note: null },
-            {
-              step: "2",
-              label: "Disclosure, vehicle, expiry anchor",
-              required: true,
-              observed: true,
-              turn_index: 2,
-              verdict: bad ? "fail" : "pass",
-              note: bad ? "Disclosure given, but the expiry anchor was wrong." : null,
-            },
-            {
-              step: "3",
-              label: "Discount and premium",
-              required: true,
-              observed: !warn,
-              turn_index: warn ? null : 4,
-              verdict: warn ? "warn" : "pass",
-              note: warn ? "Premium quoted without the discount that precedes it." : null,
-            },
-            {
-              step: "4",
-              label: "Payment link",
-              required: true,
-              observed: true,
-              turn_index: hindi ? 8 : 6,
-              verdict: "pass",
-              note: null,
-            },
-            {
-              step: "5",
-              label: "Objection handling",
-              required: false,
-              observed: hindi,
-              turn_index: hindi ? 6 : null,
-              verdict: hindi ? "pass" : "warn",
-              note: hindi ? null : "Customer deferred; no objection was worked.",
-            },
-          ],
-    disposition_check: {
-      assigned: row.disposition,
-      source: row.disposition === null ? null : "lead_stage_computed",
-      reasoning:
-        row.disposition === null
-          ? null
-          : `group=${row.disposition?.replace(/^lead_/, "")} sub=${row.disposition} decision=AUTO_APPLY conf=0.85`,
-      expected: row.disposition_verdict === "fail" ? "lead_customer_hung_up" : row.disposition,
-      verdict: row.disposition_verdict === "no_transcript" ? "warn" : row.disposition_verdict,
-      note: row.disposition_error,
-    },
     judge: { model: "Qwen3.5-4B", latency_ms: 1830, raw: null },
   };
 }
@@ -374,13 +311,6 @@ const SUMMARY: Summary = {
     { name: "idv", required_in: 44, spoken: 21, missed: 23, wrong: 4, accuracy: 38.6 },
     { name: "prev_insurer", required_in: 31, spoken: 24, missed: 7, wrong: 1, accuracy: 74.2 },
   ],
-  flow: [
-    { step: "1", label: "Identity confirmation", reached: 168, correct: 161, skipped: 7 },
-    { step: "2", label: "Disclosure, vehicle, expiry anchor", reached: 158, correct: 118, skipped: 10 },
-    { step: "3", label: "Discount and premium", reached: 141, correct: 96, skipped: 27 },
-    { step: "4", label: "Payment link", reached: 117, correct: 104, skipped: 24 },
-    { step: "5", label: "Objections", reached: 63, correct: 48, skipped: 15 },
-  ],
 };
 
 /** What the API returns for a date nothing was ever audited on. */
@@ -389,7 +319,6 @@ const EMPTY_SUMMARY: Summary = {
   totals: { calls: 0, audited: 0, no_transcript: 0, pass: 0, warn: 0, fail: 0, avg_score: 0 },
   by_agent: [],
   variables: [],
-  flow: [],
 };
 
 /* Deliberately gappy: 29 Aug is missing, so the date picker's "no audits for

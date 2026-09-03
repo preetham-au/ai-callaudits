@@ -4,6 +4,17 @@ How the call-audit system is put together, and *why* — the reasoning behind th
 decisions that are not obvious from the code. [README.md](../README.md) is the
 quickstart; this is the design record.
 
+> **Scope change, 3 Sep 2026.** The engine used to grade three axes: variables,
+> flow and disposition. It now grades **one - variable accuracy** - and the score
+> is 100% that. Flow detection survives as a *reachability gate only* (see 4a);
+> disposition is displayed as the platform assigned it and is no longer
+> second-guessed. The reviewer's own "Call Flow" dropdown and the export column
+> behind it are gone too, so the CSV is 16 columns and no longer matches the old
+> workbook exactly. The deleted disposition rules are recoverable:
+> `git log -S check_disposition -- audit/rules.py`. Sections 4c, 6 and 7 record
+> what those rules were and why they were good, because the day someone asks to
+> turn them back on, that reasoning is the expensive part.
+
 - [1. What the system is for](#1-what-the-system-is-for)
 - [2. The pipeline](#2-the-pipeline)
 - [3. Stage 0 — fetching](#3-stage-0--fetching)
@@ -32,7 +43,7 @@ Two audits, sharing one database.
 | Covers | every call of a day, thousands | 10 calls × 3 reviewers |
 | Decided by | rules + a 4B judge | a human |
 | Purpose | find the calls worth a human's ear, pre-fill the columns | the final word |
-| Output | `calls` table, dashboard | `manual_audits` table, 17-column CSV |
+| Output | `calls` table, dashboard | `manual_audits` table, 16-column CSV |
 
 The engine exists so a person never has to listen to a voicemail or type a
 transcript. The humans exist because no model is trusted with the final word.
@@ -71,8 +82,8 @@ flowchart TD
         R1["detect_flow<br/>5 steps, per-agent regex markers"]
         R2["flow_rows<br/>a step is required only if<br/>the call got that far"]
         R3["check_variables<br/>8 injected values<br/>words to int, Indic digits, 7 date shapes"]
-        R4["check_disposition<br/>4 contradiction rules"]
         R1 --> R2 --> R3
+        NOTE2["flow decides reachability only:<br/>nothing is scored or flagged on it"]
     end
 
     RULES --> RESIDUE["residue = variables marked 'missed'"]
@@ -98,8 +109,7 @@ flowchart TD
     STORE --> PARSED["parsed JSON or a recorded parse failure"]
 
     PARSED --> MERGE["audit_one: arbitration"]
-    R4 --> MERGE
-    MERGE --> SCORE["_score: 50 vars + 20 flow + 30 disposition"]
+    MERGE --> SCORE["_score: 100% variable accuracy"]
     SCORE --> VERD["verdict gate"]
     VERD --> DB[("data/audits.db<br/>calls table")]
     NOTX --> DB
@@ -172,13 +182,14 @@ Two refinements carry most of the correctness:
 - **Step 1 counts only as the opener.** A later name-drop is not a re-greeting,
   so it does not reset the order check (`rules.py:397`).
 - **A step is required only once the call got that far** (`flow_rows`): the
-  previous step was delivered *and* the agent spoke again afterwards. Nobody is
-  faulted for not quoting a premium on a call that died in the greeting. Without
-  this, the flow score is just a proxy for "the customer hung up early", which
-  measures the customer rather than the agent.
+  previous step was delivered *and* the agent spoke again afterwards.
 
-Also flagged: `W-COLLAPSE` (two different steps landing first in the same turn)
-and out-of-order delivery.
+Since the scope change, that second point is the *whole* purpose of flow
+detection. Nothing is scored, flagged or reported on the strength of a step. It
+exists so `check_variables` knows how far the call actually got: without it, a
+call that died in the greeting reports six `missed` variables it never had the
+chance to say, and the one number the product now reports would be measuring the
+customer hanging up rather than the agent.
 
 ### 4b. Variables
 
@@ -209,10 +220,13 @@ common human verification finding.
 
 If a call ended before a step, its variables are `not_reached`, never `missed`.
 
-### 4c. Disposition
+### 4c. Disposition - removed 3 Sep 2026
 
-The most valuable output, because it is the most common human finding and the one
-nothing else catches. Four contradiction rules (`rules.py:523`):
+**No longer in the code.** Kept here as the design record, because these rules
+were the most accurate thing the engine did and someone will ask for them back.
+`git log -S check_disposition -- audit/rules.py` restores them.
+
+What they were: four contradiction rules, run against the platform's own label.
 
 ```mermaid
 flowchart TD
@@ -248,15 +262,24 @@ customer then puts the phone down.
 These four were **derived from the reviewers' own findings** on the 20
 hand-audited calls: every disposition error they recorded is one of these four,
 and these four fire on none of the calls they passed. The thresholds (≥2 customer
-turns for voicemail, ≥5 for a hang-up, ≤3 for a drop) are calibrated on those 20
-calls only, and are marked `ponytail:` in the source with that ceiling stated.
+turns for voicemail, ≥5 for a hang-up, ≤3 for a drop) were calibrated on those
+20 calls only.
+
+The one thing their removal broke, and how it was patched: the manual sample used
+`disposition_verdict = 'fail'` to keep mislabelled voicemails in the human pool
+(section 8). That now keys on turn count instead - a real conversation talks
+back, an answering machine does not.
 
 ---
 
 ## 5. Stage 2 — the judge
 
 `audit/judge.py` — a local Qwen 4B behind vLLM. It sees only the **residue**:
-variables the matcher marked `missed`, plus the flow and disposition questions.
+the variables the matcher marked `missed`, and nothing else. It is asked three
+things - adjudicate those variables, summarise the call, phrase the verification
+error. The flow and disposition questions were removed with the axes they served.
+The rubric still ships the workflow, because a variable is identified by the step
+it belongs to.
 
 ### Prompt budget
 
@@ -347,11 +370,10 @@ In prose:
   paraphrase the matcher cannot. It may **not** create a `wrong`: that forces a
   fail, and a 4B's opinion is not evidence enough to call a call non-compliant.
   Deterministic wins.
-- **Flow** — its step list is discarded entirely. On spot checks it reported
-  step1/step2 skipped on calls whose opening turn plainly contained both. Rules
-  own flow; only its "collapsed" observation survives, and only as a flag.
-- **Disposition** — rules decide. A judge-only objection becomes `warn`
-  ("a human should look at this"), never `fail`.
+- **Flow, disposition** — no longer asked. Historically: the judge's flow step
+  list was discarded entirely (it reported step1/step2 skipped on calls whose
+  opening turn plainly contained both), and a judge-only disposition objection
+  became `warn`, never `fail`.
 - **Wording** — findings come from the matcher; the judge's phrasing is reused
   only to describe a finding the rules already made. Given free rein it invented
   six value errors on the ground-truth set that both the rules and the reviewers
@@ -364,24 +386,26 @@ never worse.** Everything that can fail a call is deterministic and re-derivable
 
 ## 7. Scoring and the verdict gate
 
-Score out of 100 (`run.py:66`):
-
-| Axis | Points | Basis |
-|---|---|---|
-| variables | 50 | proportion of *considered* variables that are `ok` |
-| flow | 20 | proportion of *required* steps delivered |
-| disposition | 30 | `pass` 30, `warn` 15, `fail` 0 |
+Score out of 100 (`run.py:_score`): **the proportion of considered variables that
+were said right.** One axis, no weights.
 
 "Considered" excludes `n/a` and `not_reached`, so a call that ended early is
-scored on what it actually had the chance to do.
+scored on what it actually had the chance to do. A call with nothing checkable
+scores 100, not 0 - there is no evidence of anything wrong, and a 0 would put an
+innocent call at the top of a worst-first list.
+
+It was 50 variables / 20 flow / 30 disposition until 3 Sep 2026. Rows audited
+before that date still carry a score on the old scale; re-running a day
+re-scores it, and costs no GPU time because `llm_cache` is keyed on
+`interaction_id`, not on the prompt.
 
 The verdict is **separate from the score** and is a three-way gate:
 
 ```mermaid
 flowchart TD
-    G1{"any variable 'wrong'<br/>OR disposition 'fail'?"}
+    G1{"any variable 'wrong'?"}
     G1 -->|yes| GF["FAIL<br/>misinformation reached the customer"]
-    G1 -->|no| G2{"any 'missed'<br/>or flow skipped/collapsed?"}
+    G1 -->|no| G2{"any variable 'missed'?"}
     G2 -->|yes| GW["WARN"]
     G2 -->|no| GP["PASS"]
 
@@ -413,10 +437,10 @@ flowchart TD
         P1["exclude verdict = no_transcript<br/>never connected"]
         P2{"disposition = voicemail_ivr?"}
         P3["exclude it"]
-        P4["KEEP IT<br/>engine says the label is wrong:<br/>exactly what a human wants to hear"]
+        P4["KEEP IT<br/>it talked back, so the label is wrong:<br/>exactly what a human wants to hear"]
         P0 --> P1 --> P2
-        P2 -->|"and engine agrees<br/>disposition_verdict != fail"| P3
-        P2 -->|"but disposition_verdict = fail"| P4
+        P2 -->|"and turns < 6"| P3
+        P2 -->|"but turns >= 6"| P4
 
         T1["Tier 1: >= 4 turns AND >= 60s"]
         T2["Tier 2: >= 2 turns AND >= 20s<br/>top-up only, never blended"]
@@ -445,7 +469,7 @@ flowchart TD
     LANG -->|"127"| TA["agent_id = 127 -> Tamil"]
     LANG -->|"125 or anything else"| HI["agent_id IS NOT 127 -> Hindi<br/>same rule the Language column uses<br/>so the halves always sum to the whole"]
     LANG -->|no| BOTH["both"]
-    TA --> CSV["17-column CSV<br/>language in the filename"]
+    TA --> CSV["16-column CSV<br/>language in the filename"]
     HI --> CSV
     BOTH --> CSV
 
@@ -456,10 +480,16 @@ flowchart TD
 ### The voicemail carve-out
 
 A genuine voicemail is thirty seconds of an answering machine — the engine's job,
-not a person's. But voicemails are excluded **only where the engine agrees with
-the label**. `disposition_verdict = 'fail'` on a voicemail label is the rule that
-fires when a real conversation was mislabelled, and those are exactly the calls a
-human most wants to hear. So they stay in the pool.
+not a person's. But voicemails are excluded **only where the call is also
+short** (`turns < 6`). A real conversation mislabelled voicemail is exactly what
+a human most wants to hear, and it gives itself away by talking back; an
+answering machine does not.
+
+Until 3 Sep 2026 this keyed on `disposition_verdict = 'fail'` — the engine's own
+objection to the label. When disposition verification was removed that column
+went permanently NULL, which would have silently dropped *every* voicemail-labelled
+call, mislabelled ones included: the pool would have looked healthy while quietly
+hiding the calls the sample exists to surface.
 
 ### Two tiers, not one blended pool
 
@@ -569,14 +599,14 @@ erDiagram
         text audit_date
         int agent_id
         text disposition "platform label"
-        text disposition_verdict "pass/warn/fail"
+        text disposition_verdict "kept, no longer written"
         real score
         text verdict "pass/warn/fail/no_transcript"
         text flags "JSON"
         text transcript "JSON"
         text variables "JSON"
-        text flow "JSON"
-        text disposition_check "JSON"
+        text flow "kept, no longer written"
+        text disposition_check "kept, no longer written"
         text judge "JSON"
     }
     llm_cache {
@@ -593,7 +623,7 @@ erDiagram
         int interaction_id PK
         text assigned_at
         text info_accuracy
-        text call_flow
+        text call_flow "kept, no longer written"
         text verdict
         text notes
         text submitted_at
@@ -618,9 +648,15 @@ Notes:
 
 - `calls` is written with `INSERT OR REPLACE`, so re-auditing a day overwrites it
   cleanly rather than duplicating.
-- The JSON columns (`transcript`, `variables`, `flow`, `disposition_check`,
-  `judge`) keep the full evidence for every finding, so the UI can show *which
-  turn* proves a verdict without re-running anything.
+- The JSON columns (`transcript`, `variables`, `judge`) keep the full evidence
+  for every finding, so the UI can show *which turn* proves a verdict without
+  re-running anything.
+- Six columns survive the 3 Sep scope change unwritten: `flow_score`,
+  `disposition_verdict`, `disposition_error`, `flow`, `disposition_check` and
+  `manual_audits.call_flow`. Migrating a live SQLite file to drop them buys
+  nothing, and an empty column is more honest than a stale one — old rows keep
+  the values they were actually audited with, and reverting is a `git revert`
+  rather than a schema restore.
 - `llm_cache` is keyed only by interaction id and survives re-runs, so a scoring
   change is free.
 - `auditors` rows are **deactivated, never deleted** — a departed reviewer's
@@ -652,7 +688,7 @@ Notes:
 | GET | `/api/manual/queue` | one reviewer's ten for a day |
 | GET | `/api/manual/progress` | per-reviewer assigned/done |
 | POST | `/api/manual/{id}` | submit or draft one review |
-| GET | `/api/manual/export.csv` | the 17-column workbook CSV, date range + language |
+| GET | `/api/manual/export.csv` | the 16-column workbook CSV, date range + language |
 | GET | `/{path}` | SPA fallback |
 
 `check_date()` validates every date before it reaches SQL, because `fetch_day`
@@ -699,8 +735,10 @@ The web build (`web/dist`) is committed/copied rather than built on the VM.
 `audit/validate.py` grades the engine against 20 hand-audited calls from
 27 Aug 2026 (`data/ground_truth/human_audits_2026-08-27.csv`).
 
-Agreement is measured **per axis, the way the humans record it**: did the
-reviewer write anything in `Verfication Error` / `Dispostion Error`, and did we?
+Agreement is measured **the way the humans record it**: did the reviewer write
+anything in `Verfication Error`, and did we? (The sheet's `Dispostion Error`
+column is still parsed and echoed, but no longer graded — nothing in the engine
+produces a disposition verdict to grade it against.)
 Their exact wording is not compared — two auditors phrase the same finding
 differently, and scoring on string equality would measure vocabulary rather than
 agreement.
@@ -709,8 +747,8 @@ Results that shaped the design:
 
 | Measured | Result | Consequence |
 |---|---|---|
-| judge alone on disposition | 3 hits / 3 false alarms | judge demoted to a second opinion |
-| 4 contradiction rules | 13 hits / 0 false alarms | rules own the disposition verdict |
+| judge alone on disposition | 3 hits / 3 false alarms | judge demoted to a second opinion (axis since removed) |
+| 4 contradiction rules | 13 hits / 0 false alarms | rules owned the disposition verdict (axis since removed) |
 | judge on variable values | invented 6 errors the rules and reviewers both cleared | judge may never create a `wrong` |
 | judge on flow | reported step1/step2 skipped on calls whose opening turn contained both | flow output discarded entirely |
 
@@ -721,31 +759,25 @@ table. None of them is a preference.
 
 ## 15. Known limits
 
-1. **The disposition rulebook in the judge prompt is far thinner than the real
-   policy.** Seven labels with a one-line gloss each. The production policy has
-   precedence rules — the link test overriding first impressions, branch-vs-link
-   tie-breaks, "the channel picks the code, the date never does". The judge is
-   grading dispositions against a smaller rulebook than the one that assigned
-   them, and since it defaults to `pass`, it under-reports on exactly the
-   contested calls. Highest-value fix available; it fits the budget if traded
-   against the rubric allowance.
+1. **One axis means one failure mode is measured.** A call can now score 100
+   having said every injected value correctly and still have skipped the
+   disclosure, quoted a premium to an answering machine, or been filed under the
+   wrong outcome. The engine is silent on all of that by design as of 3 Sep 2026.
+   The disposition rules that used to catch the third case scored 13 hits and 0
+   false alarms against the reviewers (§14) and are one `git revert` away.
 
-2. **The four contradiction rules are calibrated on 20 calls.** Marked
-   `ponytail:` in the source with that ceiling written down. Right so far, but 20
-   is 20 — re-check the thresholds if the ground-truth sample grows.
-
-3. **Agent 124 has no name anywhere in the app.** Six calls, labelled Hindi by
+2. **Agent 124 has no name anywhere in the app.** Six calls, labelled Hindi by
    default because it is not 127. The manual download handles it; the Calls-page
    agent dropdown still offers only 125 and 127, so its calls are reachable in
    "all agents" and in no per-language option there.
 
-4. **The engine CSV export is single-day**; the manual export takes a date range.
+3. **The engine CSV export is single-day**; the manual export takes a date range.
 
-5. **`prompts/125.md` and `prompts/127.md` (383 KB) are read by no code.** The
+4. **`prompts/125.md` and `prompts/127.md` (383 KB) are read by no code.** The
    rubrics in `rubric/*.json` were distilled from them by hand. Either wire them
    in or delete them.
 
-6. **No catch-up window on the scheduler** — see §9.
+5. **No catch-up window on the scheduler** — see §9.
 
 ---
 
@@ -767,3 +799,6 @@ table. None of them is a preference.
 | 12 | Split the language download on `!= 127` | `= 125` | agent 124 exists; exact matching drops it from both halves |
 | 13 | Verdict is a gate, not a threshold on the score | `score < 70 = fail` | a wrong premium is categorical, not a deduction |
 | 14 | Estimate tokens locally, over-counting | trust the server to truncate | vLLM has no `/tokenize`; a 400 mid-run costs more than truncating early |
+| 15 | One axis: variable accuracy only (3 Sep 2026) | keep flow and disposition | asked for. Variables are the axis the feed makes mechanical, so it is the axis the engine can be trusted on without a human |
+| 16 | Keep flow detection as a reachability gate | delete it with the axis | without it a call that died in the greeting reports six `missed` variables it never had the chance to say — the one remaining number would measure the customer |
+| 17 | Keep the dropped columns, stop writing them | migrate the SQLite schema | empty is more honest than stale, old rows keep what they were audited with, and reverting is a `git revert` not a schema restore |

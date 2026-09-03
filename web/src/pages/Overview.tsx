@@ -124,33 +124,6 @@ export function OverviewPage({ date }: { date: string }) {
               </div>
             </Section>
 
-            <Section title="Flow steps" subtitle="How far the call workflow got">
-              <div className="table-wrap">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th scope="col">Step</th>
-                      <th scope="col" className="num">Reached</th>
-                      <th scope="col" className="num">Correct</th>
-                      <th scope="col" className="num">Skipped</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.flow.map((f) => (
-                      <tr key={f.step}>
-                        <th scope="row" style={{ textAlign: "left", fontWeight: 600 }}>
-                          {f.step}. {f.label}
-                        </th>
-                        <td className="num">{num(f.reached)}</td>
-                        <td className="num">{num(f.correct)}</td>
-                        <td className="num">{num(f.skipped)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </Section>
-
             <Section
               title="Variable accuracy"
               subtitle="Worst first. A wrong value was said out loud to a customer."

@@ -1,5 +1,11 @@
 """Orchestration: fetch -> rules -> judge -> SQLite.
 
+One axis only: variable accuracy. Flow and disposition are no longer verified,
+so the score is 100% variables and no call can be failed for how the agent
+sequenced its script or for the label the platform put on it. Flow detection
+still runs, purely so `check_variables` knows how far the call got.
+
+
 python -m audit.run                 audit AUDIT_DATE
 python -m audit.run --date 2026-08-30
 python -m audit.run --ids 5681202,5681544
@@ -20,8 +26,7 @@ from .data import AUDIT_DATE, ENV, ROOT, fetch_day, fetch_ids
 
 DB = ROOT / "data" / "audits.db"
 
-FLAGS = {"missing_variable", "wrong_variable", "flow_skipped", "flow_collapsed",
-         "wrong_disposition", "short_call", "llm_parse_failed"}
+FLAGS = {"missing_variable", "wrong_variable", "short_call", "llm_parse_failed"}
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -58,21 +63,20 @@ def _turns(row) -> list[dict]:
             for m in (row.get("messages") or []) if m.get("role") in ("assistant", "user")]
 
 
-DEFAULT_LABELS = ["lead_premium_quotation", "lead_link_sent_online", "hung_up",
-                  "voicemail_ivr", "not_interested", "call_back", "wrong_number",
-                  "already_renewed", "lead_transferred_to_sales", "directed_to_branch"]
+def _score(vars_):
+    """The whole score: what fraction of the checkable variables were said right.
 
-
-def _score(vars_, flow, disp_verdict):
+    A call with nothing to check scores 100, not 0 -- there was no opportunity to
+    get anything wrong, and a day of short calls must not read as a day of bad
+    ones.
+    """
     considered = [v for v in vars_ if v["verdict"] in ("ok", "missed", "wrong")]
-    var_s = 50.0 * (sum(v["verdict"] == "ok" for v in considered) / len(considered)) if considered else 50.0
-    req = [f for f in flow if f["required"]]
-    flow_s = 20.0 * (sum(f["verdict"] == "pass" for f in req) / len(req)) if req else 20.0
-    disp_s = {"pass": 30.0, "fail": 0.0}.get(disp_verdict, 15.0)
-    return round(var_s + flow_s + disp_s, 1), round(flow_s, 1), considered
+    if not considered:
+        return 100.0, considered
+    return round(100.0 * sum(v["verdict"] == "ok" for v in considered) / len(considered), 1), considered
 
 
-def audit_one(row: dict, labels: list[str], llm: bool, cached: dict | None) -> dict:
+def audit_one(row: dict, llm: bool, cached: dict | None) -> dict:
     av = row.get("additional_variables") or {}
     turns = _turns(row)
     base = {
@@ -89,29 +93,24 @@ def audit_one(row: dict, labels: list[str], llm: bool, cached: dict | None) -> d
     if not turns:
         return {**base, "score": None, "verdict": "no_transcript", "flow_score": None,
                 "variables_checked": 0, "variables_failed": 0, "flags": [],
-                "disposition_verdict": "no_transcript", "verification_error": None,
+                "disposition_verdict": None, "verification_error": None,
                 "disposition_error": None, "summary": None, "transcript": [],
-                "variables": [], "flow": [],
-                "disposition_check": {"assigned": base["disposition"],
-                                      "source": row.get("lead_stage_source"),
-                                      "reasoning": row.get("lead_stage_reasoning"),
-                                      "expected": None, "verdict": "no_transcript",
-                                      "note": "call never connected", "turn_index": None},
+                "variables": [], "flow": [], "disposition_check": None,
                 "judge": {"model": J.MODEL, "latency_ms": None, "raw": None},
                 "transcript_truncated": False}
 
+    # Flow is computed for one reason only: it tells check_variables how far the
+    # call got, so a call that died in the greeting is not marked down for the
+    # six values it never reached. Nothing is scored or flagged on it.
     det = R.detect_flow(turns, row["agent_id"])
     flow = R.flow_rows(turns, row["agent_id"], det)
     vars_ = R.check_variables(turns, av, flow)
     rub = R.load_rubric(row["agent_id"])
-    dispinfo = {"assigned": row.get("lead_stage_computed"),
-                "source": row.get("lead_stage_source"),
-                "reasoning": row.get("lead_stage_reasoning")}
 
     residue = [v for v in vars_ if v["verdict"] == "missed"]
     res = cached
     if res is None and llm:
-        res = J.judge(rub, turns, residue, dispinfo, labels)
+        res = J.judge(rub, turns, residue)
     res = res or {"ok": False, "parsed": None, "raw": None, "latency_ms": None,
                   "error": "llm_skipped", "transcript_truncated": False}
     p = res.get("parsed") or {}
@@ -130,33 +129,7 @@ def audit_one(row: dict, labels: list[str], llm: bool, cached: dict | None) -> d
                             turn_index=v.get("turn_index") if isinstance(v.get("turn_index"), int) else None,
                             spoken=True)
 
-    # The judge's step list is not used: on spot checks it reported step1/step2
-    # skipped on calls whose opening turn plainly contains both. Rules own flow;
-    # only its collapse observation is kept, and only to raise a flag.
-    if any(f["required"] and f["verdict"] == "fail" for f in flow):
-        flags.append("flow_skipped")
-    if any(x.startswith("W-COLLAPSE") for x in det["flags"]) or p.get("flow", {}).get("collapsed") is True:
-        flags.append("flow_collapsed")
-
-    # Rules decide the disposition; the judge is a second opinion only. Unaided
-    # on the 20 human-audited calls the judge scored 3 hits against 3 false
-    # alarms; the four contradiction rules scored 13 against 0. So a judge-only
-    # objection is surfaced as `warn` for a human to look at, never as `fail`.
-    dv, dexp, dti, dnote = R.check_disposition(turns, base["disposition"])
-    dj = p.get("disposition") if isinstance(p.get("disposition"), dict) else {}
-    if dv == "pass" and dj.get("verdict") == "fail":
-        dv, dnote = "warn", "judge disputes the label: " + str(dj.get("note") or "")[:150]
-        ti = dj.get("turn_index")
-        if isinstance(ti, int) and 0 <= ti < len(turns):
-            dti = ti
-        if dj.get("expected"):
-            dexp = str(dj["expected"])[:60]
-    disp_check = {**dispinfo, "expected": dexp, "verdict": dv, "note": dnote,
-                  "turn_index": dti if isinstance(dti, int) and 0 <= dti < len(turns) else None}
-    if dv == "fail":
-        flags.append("wrong_disposition")
-
-    score, flow_score, considered = _score(vars_, flow, dv)
+    score, considered = _score(vars_)
     failed = sum(v["verdict"] in ("missed", "wrong") for v in considered)
     if any(v["verdict"] == "wrong" for v in considered):
         flags.append("wrong_variable")
@@ -167,9 +140,11 @@ def audit_one(row: dict, labels: list[str], llm: bool, cached: dict | None) -> d
     if not res.get("ok") and llm:
         flags.append("llm_parse_failed")
 
-    if any(v["verdict"] == "wrong" for v in considered) or dv == "fail":
-        verdict = "fail"          # misinformation reaches the customer either way
-    elif failed or "flow_skipped" in flags or "flow_collapsed" in flags:
+    # Saying a wrong value out loud is categorical: the customer heard a figure
+    # that was not theirs. Silence is a warn -- bad, but nobody was misinformed.
+    if any(v["verdict"] == "wrong" for v in considered):
+        verdict = "fail"
+    elif failed:
         verdict = "warn"
     else:
         verdict = "pass"
@@ -188,20 +163,20 @@ def audit_one(row: dict, labels: list[str], llm: bool, cached: dict | None) -> d
         verr = _txt("verification_error") or ""
         if not all(w.split("_")[0][:3].lower() in verr.lower() for w in wrong):
             verr = ", ".join(w.upper() for w in wrong) + " incorrect"
-    # Reviewer register, deliberately including their misspelling.
-    derr = None
-    if dv == "fail":
-        derr = (f"Wrong Dispostion({dnote}) but mention {base['disposition']}"
-                if dnote else f"Wrong Dispostion (mention {base['disposition']})")
 
-    return {**base, "score": score, "verdict": verdict, "flow_score": flow_score,
+    # `flow`, `flow_score`, `disposition_verdict`, `disposition_error` and
+    # `disposition_check` keep their columns but are no longer written: dropping
+    # them would mean migrating a live database for nothing, and leaving them
+    # empty makes it obvious the engine has stopped having an opinion rather than
+    # leaving a stale one behind.
+    return {**base, "score": score, "verdict": verdict, "flow_score": None,
             "variables_checked": len(considered), "variables_failed": failed,
-            "flags": sorted(set(flags) & FLAGS), "disposition_verdict": dv,
-            "verification_error": verr, "disposition_error": derr,
+            "flags": sorted(set(flags) & FLAGS), "disposition_verdict": None,
+            "verification_error": verr, "disposition_error": None,
             "summary": _txt("summary"),
             "transcript": [{"role": t["role"], "content": t["content"], "index": i}
                            for i, t in enumerate(turns)],
-            "variables": vars_, "flow": flow, "disposition_check": disp_check,
+            "variables": vars_, "flow": [], "disposition_check": None,
             "judge": {"model": J.MODEL, "latency_ms": res.get("latency_ms"),
                       "raw": res.get("raw"), "error": res.get("error")},
             "transcript_truncated": bool(res.get("transcript_truncated"))}
@@ -240,7 +215,6 @@ def _cache_put(conn, iid, res):
 
 def run(date: str, ids: list[int] | None = None, llm: bool = True, save_db: bool = True) -> list[dict]:
     rows = fetch_ids(ids) if ids else fetch_day(date)
-    labels = sorted({r["lead_stage_computed"] for r in rows if r.get("lead_stage_computed")}) or DEFAULT_LABELS
     conn = db()
     started = datetime.now(timezone.utc).isoformat()
     run_id = conn.execute(
@@ -268,10 +242,7 @@ def run(date: str, ids: list[int] | None = None, llm: bool = True, save_db: bool
                      [v for v in R.check_variables(_turns(r), r["additional_variables"],
                                                    R.flow_rows(_turns(r), r["agent_id"],
                                                                R.detect_flow(_turns(r), r["agent_id"])))
-                      if v["verdict"] == "missed"],
-                     {"assigned": r.get("lead_stage_computed"),
-                      "source": r.get("lead_stage_source"),
-                      "reasoning": r.get("lead_stage_reasoning")}, labels)
+                      if v["verdict"] == "missed"])
                     for r in chunk]
             t0 = time.time()
             for r, res in zip(chunk, J.judge_many(jobs)):
@@ -280,7 +251,7 @@ def run(date: str, ids: list[int] | None = None, llm: bool = True, save_db: bool
             conn.commit()
             print(f"  judged {min(i + 40, len(todo))}/{len(todo)} ({time.time() - t0:.0f}s)", flush=True)
 
-    recs = [audit_one(r, labels, llm, cache.get(r["id"])) for r in rows]
+    recs = [audit_one(r, llm, cache.get(r["id"])) for r in rows]
     if save_db:
         save(conn, run_id, date, recs)
     conn.execute("UPDATE runs SET finished_at=? WHERE id=?",
@@ -301,10 +272,10 @@ def main():
     for r in recs:
         n[r["verdict"]] = n.get(r["verdict"], 0) + 1
     scored = [r["score"] for r in recs if r["score"] is not None]
+    wrong = sum("wrong_variable" in r["flags"] for r in recs)
     print(json.dumps({"verdicts": n,
                       "avg_score": round(sum(scored) / len(scored), 1) if scored else None,
-                      "disposition_wrong": sum(r["disposition_verdict"] == "fail" for r in recs)},
-                     indent=2))
+                      "calls_with_a_wrong_value": wrong}, indent=2))
     print(J.calibration_report(), file=sys.stderr)
 
 

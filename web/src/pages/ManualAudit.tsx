@@ -7,7 +7,6 @@ import {
   LoadingBlock,
   Nul,
   Section,
-  VerdictPill,
   clockIst,
   dayIst,
   duration,
@@ -298,7 +297,6 @@ function AuditDialog({
   const ref = useRef<HTMLDialogElement>(null);
   const [form, setForm] = useState({
     info_accuracy: call.info_accuracy ?? "",
-    call_flow: call.call_flow ?? "",
     verdict: call.verdict ?? "",
     notes: call.notes ?? "",
   });
@@ -368,7 +366,7 @@ function AuditDialog({
       setForm((f) => ({ ...f, [key]: e.target.value }));
   }
 
-  const filled = [form.info_accuracy, form.call_flow, form.verdict].filter(Boolean).length;
+  const filled = [form.info_accuracy, form.verdict].filter(Boolean).length;
 
   return (
     <dialog
@@ -434,22 +432,13 @@ function AuditDialog({
                   options={options.info_accuracy}
                   onChange={set("info_accuracy")}
                 />
-                <Pick
-                  id="f-flow"
-                  label="Call flow"
-                  value={form.call_flow}
-                  options={options.call_flow}
-                  onChange={set("call_flow")}
-                />
-
                 {/* The platform's label sits beside the reviewer's own call rather
                     than being re-picked: they are two different judgements and the
                     report needs both. */}
                 <div className="field">
                   <label>Platform disposition</label>
                   <div>
-                    <span className="figure">{text(call.disposition)}</span>{" "}
-                    <VerdictPill verdict={call.disposition_verdict} />
+                    <span className="figure">{text(call.disposition)}</span>
                   </div>
                 </div>
 
@@ -547,7 +536,7 @@ function Saved({ state, error, filled }: { state: SaveState; error: string | nul
   if (state === "saved") {
     return (
       <span className="autosave" role="status">
-        <Check size={13} aria-hidden /> Saved {filled}/3
+        <Check size={13} aria-hidden /> Saved {filled}/2
       </span>
     );
   }

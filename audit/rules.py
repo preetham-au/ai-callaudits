@@ -1,6 +1,13 @@
 """Deterministic checks. Everything a regex can decide is decided here so the
 4B judge only ever sees the residue.
 
+The engine grades ONE axis: did the agent say each injected value, and say it
+right. Flow and disposition are no longer verified. `detect_flow`/`flow_rows`
+survive because `check_variables` needs them to know how far the call actually
+got -- without that gate, a call that died in the greeting reports six 'missed'
+variables it never had the chance to say. They decide reachability, nothing else:
+nothing is scored, flagged or reported on the strength of a flow step.
+
 The feed already supplies numbers as English words ("six thousand eight hundred
 twenty six"), so both sides of every comparison are parsed to an integer and the
 integers are compared. That survives the reformatting the agent does out loud
@@ -504,59 +511,14 @@ def check_variables(turns, av: dict, flow: list[dict]) -> list[dict]:
     return out
 
 
-# ------------------------------------------------------------- the disposition
-
-_FAREWELL = re.compile(r"धन्यवाद|दिन अच्छा|शुभ\s*दिन|आपका दिन|நன்றி|நல்ல நாள்|thank you|good day", re.I)
-_LINK_SENT = re.compile(r"भेज\s*दिया|भेजा है|अனுப்பிட்டேன்|அனுப்பிட்டேன்|link.{0,20}(sent|sent hai)", re.I)
-# Labels that already mean "the call did not complete".
-_DROP_LABELS = {"hung_up", "hungup", "no_answer", "voicemail_ivr", "dnc", "wrong_number",
-                "other_language", "silence", "not_connected"}
-_PROGRESS_LABELS = {"lead_premium_quotation", "lead_link_sent_online", "positive_followup",
-                    "lead_transferred_to_sales", "share_premium_and_quotation",
-                    "link_sent_online_closed", "link_sent_online_committed"}
-
-
-def _customer_turns(turns) -> int:
-    return sum(1 for t in turns if t["role"] == "user" and len(t["content"].strip()) > 1)
-
-
-def check_disposition(turns, assigned: str | None) -> tuple[str, str | None, int | None, str | None]:
-    """(verdict, expected, turn_index, note) from the transcript alone.
-
-    Derived from the reviewers' own findings on the 20 hand-audited calls: every
-    disposition error they recorded is one of these four contradictions, and
-    these four fire on none of the calls they passed. The thresholds
-    (>=2 customer turns for voicemail, >=5 for a hang-up, <=3 for a drop) are
-    ponytail: calibrated on those 20 calls only — re-check them if the sample grows.
-    """
-    if not turns:
-        return "no_transcript", None, None, "call never connected"
-    if not assigned:
-        return "warn", None, None, "no label assigned by the platform"
-    lab = assigned.strip().lower()
-    cust = _customer_turns(turns)
-    last = len(turns) - 1
-    last_assistant = turns[-1]["role"] == "assistant"
-    farewell = any(_FAREWELL.search(t["content"]) for t in turns[-2:])
-    link = next((i for i, t in enumerate(turns)
-                 if t["role"] == "assistant" and _LINK_SENT.search(t["content"])), None)
-
-    if lab == "voicemail_ivr" and cust >= 2:
-        return ("fail", "not a voicemail", last,
-                f"customer spoke on {cust} turns; this was a live conversation")
-    if lab in ("hung_up", "hungup") and (link is not None or cust >= 5):
-        return ("fail", "lead_link_sent_online" if link is not None else "a completed outcome",
-                link if link is not None else last,
-                "the call ran to a real conversation, it was not a hang-up")
-    if "link_sent" in lab and link is None:
-        return ("fail", "lead_premium_quotation", last, "no link was ever confirmed as sent")
-    # Only labels that claim the pitch got somewhere. A terminal customer state
-    # (already paid, not interested, wrong number) stays true even if the
-    # customer then puts the phone down.
-    if lab in _PROGRESS_LABELS and last_assistant and not farewell and cust <= 3:
-        return ("fail", "hung_up", last,
-                "customer stopped replying and the call ended mid-script")
-    return "pass", assigned, (link if link is not None else last), None
+# The four disposition contradiction rules -- voicemail with a real conversation,
+# hang-up label on a long call, link-sent with no link, progress label on a call
+# the customer dropped -- lived here. Removed with the flow verification: the
+# engine no longer judges the platform's label, only whether the injected values
+# were spoken. The label itself still travels through to the UI and the export as
+# plain data; we simply stop having an opinion about it.
+#
+# `git log -S check_disposition -- audit/rules.py` has them if they are wanted back.
 
 
 def load_rubric(agent_id: int) -> dict:

@@ -77,24 +77,24 @@ def main():
     # These are 27-Aug calls, so they must be fetched by id, not by date.
     recs = {r["interaction_id"]: r for r in run("2026-08-27", ids, llm=not a.no_llm, save_db=False)}
 
-    ver, dis, detail = [], [], []
+    # Only the variable axis is graded now; the human sheet's Dispostion Error
+    # column is still parsed and echoed, so a later disposition pass can be
+    # graded against it without re-reading the workbook.
+    ver, detail = [], []
     for h in hum:
         r = recs.get(h["interaction_id"])
         if not r:
             print(f"  !! {h['interaction_id']} not found in Metabase")
             continue
-        hv, hd = _flag(h["verification_error"]), _flag(h["disposition_error"])
         mv = bool(r["verification_error"]) or any(
             v["verdict"] == "wrong" for v in r["variables"])
-        md = r["disposition_verdict"] == "fail"
-        ver.append((hv, mv)); dis.append((hd, md))
+        ver.append((_flag(h["verification_error"]), mv))
         detail.append({"id": h["interaction_id"], "turns": r["turns"],
                        "assigned": r["disposition"], "verdict": r["verdict"],
                        "human_ver": h["verification_error"] or "NA", "engine_ver": r["verification_error"] or "NA",
-                       "human_disp": h["disposition_error"] or "NA", "engine_disp": r["disposition_error"] or "NA"})
+                       "human_disp": h["disposition_error"] or "NA"})
 
-    print(json.dumps({"per_axis": [_axis("verification", ver), _axis("disposition", dis)],
-                      "both_axes_agree": sum(v[0] == v[1] and d[0] == d[1] for v, d in zip(ver, dis)),
+    print(json.dumps({"per_axis": [_axis("verification", ver)],
                       "calls": detail}, indent=2, ensure_ascii=False))
 
 

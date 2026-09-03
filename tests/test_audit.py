@@ -2,7 +2,7 @@
 
 Real fixtures, from calls that actually ran: the two spoken transformations
 CONTRACT documents, the wrong-value case that must force `fail`, and the
-disposition rules graded against the human sheet's own labels.
+variable checks graded against the human sheet's own labels.
 """
 import csv
 import sys
@@ -56,24 +56,11 @@ def test_wrong_value_forces_fail():
                 "de-tariff discount, renewal premium है nine thousand rupees"},
                {"role": "user", "content": "हां भेज दीजिए"},
                {"role": "assistant", "content": "Link आपके WhatsApp पर भेज दिया है। धन्यवाद।"}]}
-    rec = audit_one(row, ["lead_link_sent_online"], llm=False, cached=None)
+    rec = audit_one(row, llm=False, cached=None)
     prem = [v for v in rec["variables"] if v["name"] == "premium"][0]
     assert prem["verdict"] == "wrong"           # 9000 spoken, 10693 injected
     assert rec["verdict"] == "fail" and "wrong_variable" in rec["flags"]
-    assert rec["disposition_verdict"] == "pass"  # the link really was sent
     assert rec["score"] < 100
-
-
-def test_disposition_rules_match_the_human_sheet():
-    """The four contradiction rules, on the shapes the reviewers flagged."""
-    talk = [{"role": "assistant", "content": "नमस्ते"}, {"role": "user", "content": "हां बोलिए"},
-            {"role": "assistant", "content": "premium है"}, {"role": "user", "content": "ठीक है"},
-            {"role": "assistant", "content": "क्या मैं link भेज दूं?"}]
-    assert R.check_disposition(talk, "voicemail_ivr")[0] == "fail"     # a live conversation
-    assert R.check_disposition(talk, "lead_link_sent_online")[0] == "fail"  # no link sent
-    assert R.check_disposition(talk, "lead_premium_quotation")[0] == "fail"  # customer dropped
-    assert R.check_disposition(talk, "hung_up")[0] == "pass"
-    assert R.check_disposition([], "hung_up")[0] == "no_transcript"
 
 
 def test_ground_truth_fixture_is_deidentified():
