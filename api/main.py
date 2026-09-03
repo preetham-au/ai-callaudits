@@ -113,14 +113,17 @@ def summary(date: str | None = None):
                 "fail": sum(r["verdict"] == "fail" for r in rs),
                 "avg_score": round(sum(s) / len(s), 1) if s else 0.0}
 
-    var = defaultdict(lambda: {"required_in": 0, "spoken": 0, "missed": 0, "wrong": 0})
+    # correct/missed/wrong are disjoint and sum to required_in. An earlier
+    # "spoken" column counted ok+wrong, so every row read as though it had more
+    # occurrences than it was checked on.
+    var = defaultdict(lambda: {"required_in": 0, "correct": 0, "missed": 0, "wrong": 0})
     for r in det:
         for v in r["variables"]:
             if v["verdict"] not in ("ok", "missed", "wrong"):
                 continue
             s = var[v["name"]]
             s["required_in"] += 1
-            s["spoken"] += v["verdict"] in ("ok", "wrong")
+            s["correct"] += v["verdict"] == "ok"
             s["missed"] += v["verdict"] == "missed"
             s["wrong"] += v["verdict"] == "wrong"
 
@@ -136,7 +139,7 @@ def summary(date: str | None = None):
             # A percentage, not a fraction: the UI prints it with a % and sizes a
             # bar by it, and 0.48 rendered as "0.5%" read as a catastrophe.
             ({"name": k, **v,
-              "accuracy": round(100.0 * (v["required_in"] - v["missed"] - v["wrong"]) / v["required_in"], 1)
+              "accuracy": round(100.0 * v["correct"] / v["required_in"], 1)
               if v["required_in"] else 0.0} for k, v in var.items()),
             key=lambda d: d["accuracy"]),
     }

@@ -126,7 +126,7 @@ export function OverviewPage({ date }: { date: string }) {
 
             <Section
               title="Variable accuracy"
-              subtitle="Worst first. A wrong value was said out loud to a customer."
+              subtitle="Worst first. Correct + missed + wrong = required in. A wrong value was said out loud to a customer."
               wide
             >
               <div className="table-wrap">
@@ -135,7 +135,7 @@ export function OverviewPage({ date }: { date: string }) {
                     <tr>
                       <th scope="col">Variable</th>
                       <th scope="col" className="num">Required in</th>
-                      <th scope="col" className="num">Spoken</th>
+                      <th scope="col" className="num">Correct</th>
                       <th scope="col" className="num">Missed</th>
                       <th scope="col" className="num">Wrong</th>
                       <th scope="col" className="num">Accuracy</th>
@@ -151,7 +151,7 @@ export function OverviewPage({ date }: { date: string }) {
                             {v.name}
                           </th>
                           <td className="num">{num(v.required_in)}</td>
-                          <td className="num">{num(v.spoken)}</td>
+                          <td className="num">{num(v.correct)}</td>
                           <td className="num">{num(v.missed)}</td>
                           <td className="num">{num(v.wrong)}</td>
                           <td className="num">{pct(v.accuracy)}</td>

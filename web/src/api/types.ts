@@ -82,9 +82,10 @@ export interface AgentSummary {
 export interface VariableStat {
   name: string;
   required_in: number;
-  spoken: number;
+  correct: number;
   missed: number;
   wrong: number;
+  /** Percent, 0-100: correct / required_in. */
   accuracy: number;
 }
 

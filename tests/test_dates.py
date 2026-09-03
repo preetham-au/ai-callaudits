@@ -35,6 +35,9 @@ def build_db() -> Path:
     db = Path(tempfile.mkdtemp()) / "audits.db"
     conn = sqlite3.connect(db)
     conn.execute(f"CREATE TABLE calls ({COLS})")
+    # One of each verdict the summary counts, plus one it must ignore.
+    vars_ = json.dumps([{"name": "premium", "verdict": v} for v in
+                        ("ok", "missed", "wrong", "not_reached")])
     rows = [(DAY_A, 1, 125, "pass"), (DAY_A, 2, 125, "fail"), (DAY_B, 3, 127, "pass")]
     for date, iid, agent, verdict in rows:
         conn.execute(
@@ -42,7 +45,7 @@ def build_db() -> Path:
             "turns, score, verdict, variables_failed, transcript, variables, flow, "
             "flags, disposition_check, judge) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (iid, date, agent, f"{date}T10:00:00+05:30", 4, 80.0, verdict, 0,
-             json.dumps([{"role": "agent", "content": "hi"}]), "[]", "[]", "[]",
+             json.dumps([{"role": "agent", "content": "hi"}]), vars_, "[]", "[]",
              "{}", "{}"))
     conn.commit()
     conn.close()
@@ -62,6 +65,13 @@ def main() -> None:
     a = M.summary(DAY_A)
     assert a["date"] == DAY_A and a["totals"]["calls"] == 2, a["totals"]
     assert a["totals"]["pass"] == 1 and a["totals"]["fail"] == 1, a["totals"]
+
+    # The four count columns are printed side by side, so they must be disjoint
+    # and add up. They did not: "spoken" was ok+wrong, over-counting every row.
+    v = a["variables"][0]
+    assert v["correct"] + v["missed"] + v["wrong"] == v["required_in"], v
+    assert (v["required_in"], v["correct"]) == (6, 2), v  # 2 calls x 3 counted, 'not_reached' ignored
+    assert v["accuracy"] == 33.3, v  # a percentage, not a fraction
 
     b = M.summary(DAY_B)
     assert b["date"] == DAY_B and b["totals"]["calls"] == 1, b["totals"]
