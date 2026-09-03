@@ -24,7 +24,7 @@ from api import manual as M  # noqa: E402
 DATE = "2026-08-30"
 
 
-def _seed(hindi: int, tamil: int, junk: bool = True) -> None:
+def _seed(hindi: int, tamil: int, junk: bool = True, other: int = 0) -> None:
     c = sqlite3.connect(TMP)
     c.executescript("""
     CREATE TABLE IF NOT EXISTS calls (
@@ -53,6 +53,10 @@ def _seed(hindi: int, tamil: int, junk: bool = True) -> None:
         add(125)
     for _ in range(tamil):
         add(127)
+    # Agent 124 is real and in production: a third id the app has no name for.
+    # It is labelled Hindi, so it must be downloadable as Hindi.
+    for _ in range(other):
+        add(124)
     if junk:
         add(125, verdict="no_transcript", turns=0, duration_s=0)
         add(125, disposition="voicemail_ivr", disposition_verdict="pass")
@@ -184,7 +188,9 @@ def test_report_can_be_narrowed_to_one_language():
     A filter that returns every row with the Language column merely set looks
     right in the UI and is wrong in the file the reviewer opens.
     """
-    _seed(90, 10)
+    # Seeded with a third agent id on purpose: 124 is in the live data and is
+    # labelled Hindi. Matching agent_id == 125 exactly put it in NEITHER file.
+    _seed(60, 10, other=30)
     M.queue(DATE, "HV")
     both = M.report(DATE, DATE)
     hindi = M.report(DATE, DATE, 125)

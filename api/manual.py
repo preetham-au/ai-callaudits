@@ -309,16 +309,22 @@ def _mmss(seconds) -> str:
 def report(date_from: str, date_to: str, agent_id: int | None = None) -> list[dict]:
     """Submitted audits as report rows. `agent_id` narrows to one language.
 
-    Filtered on agent_id rather than the "Language" column it produces: the
-    column is derived (127 -> Tamil, everything else Hindi), so matching on the
-    word would tie the filter to a label that is only ever computed for display.
+    The split uses exactly the rule the Language column uses -- 127 is Tamil,
+    everything else is Hindi -- so the two downloads always add back up to the
+    whole. An exact `agent_id = 125` match does NOT: agent 124 exists in the
+    data (a handful of calls, one of them already dealt to a reviewer) and is
+    labelled Hindi, so exact matching dropped it from both halves at once. A row
+    that is in neither download is invisible twice over, which is worse than a
+    row in the wrong one.
     """
     check_date(date_from)
     check_date(date_to)
     where, args = "m.audit_date BETWEEN ? AND ?", [date_from, date_to]
     if agent_id is not None:
-        where += " AND calls.agent_id = ?"
-        args.append(int(agent_id))
+        # `IS NOT` rather than `!=` so a NULL agent_id still lands in Hindi
+        # instead of being silently dropped by SQL's three-valued logic.
+        where += (" AND calls.agent_id = 127" if int(agent_id) == 127
+                  else " AND calls.agent_id IS NOT 127")
     with _db() as c:
         rows = [dict(r) for r in c.execute(
             f"SELECT m.*, {_CALL_COLS} FROM manual_audits m "
