@@ -12,6 +12,7 @@ import json
 import os
 import sys
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import requests
@@ -106,9 +107,18 @@ def _paged(where: str) -> list[dict]:
 # `ended_time - created_at` spans the whole dial attempt, not the conversation:
 # it reads 5860s on a one-turn call. The real figure is in interaction_metadata,
 # which is what the reports repo settled on too.
+#
+# Both timestamps are `timestamp WITHOUT time zone` holding NAIVE UTC -- the same
+# convention the reports repo documents (interaction_export.sql). Metabase's own
+# report timezone is Asia/Kolkata, so it stamps "+05:30" onto the naive value on
+# the way out: the string said 06:18:44+05:30 for a call actually placed at
+# 11:48 IST, and every clock in the UI was 5h30m early. Converted here, at the
+# one place that knows the convention, so nothing downstream has to.
 _SELECT = """
 SELECT i.id, i.agent_id, i.campaign_id, i.lead_id, i.contact_id, i.provider_sid,
-       i.created_at, i.ended_time, i.status, i.call_stage,
+       (i.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata') AS created_at,
+       (i.ended_time AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata') AS ended_time,
+       i.status, i.call_stage,
        i.lead_stage_computed, i.lead_stage_source, i.lead_stage_reasoning,
        (i.interaction_metadata->>'call_duration') AS call_duration,
        c.name AS campaign_name,
@@ -132,12 +142,41 @@ def _clean(rows: list[dict]) -> list[dict]:
         r["messages"] = r["messages"] or []
         d = r.get("call_duration")
         r["duration_s"] = int(float(d)) if d not in (None, "") else None
+        # Best available, in order: the conversation, the end of the last dial
+        # attempt, the moment the batch was queued. Only the last is shared by
+        # thousands of rows, so it is the last resort.
+        r["started_at"] = (_call_start(r.get("ended_time"), r["duration_s"])
+                           or r.get("ended_time") or r.get("created_at"))
     return rows
 
 
+def _call_start(ended, duration_s):
+    """When the conversation began: the attempt's end, less the time spoken.
+
+    `created_at` is not it. That is when the platform queued the row, so a whole
+    batch shares one microsecond -- five leads stamped 06:27:53.302174, one of
+    which ended 49 minutes later -- and the call list piled thousands of calls
+    onto a single instant. `ended_time` is per-row and real, and an interaction
+    can hold several dial attempts, so the conversation is the tail of the last
+    one. With no duration nobody spoke, and the end of the attempt is the truest
+    time there is.
+    """
+    if not ended or not duration_s:
+        return None
+    try:
+        return (datetime.fromisoformat(str(ended)) - timedelta(seconds=duration_s)).isoformat()
+    except ValueError:
+        return None
+
+
 def fetch_day(date: str) -> list[dict]:
-    return _clean(_paged(f"i.outlet_id = {OUTLET_ID} "
-                         f"AND i.created_at >= '{date}' AND i.created_at < '{date}'::date + 1"))
+    # An audit day is an IST day. The column is naive UTC, so the window is
+    # shifted rather than the column converted -- `created_at >= x` can use the
+    # index, `created_at AT TIME ZONE ... >= x` cannot.
+    return _clean(_paged(
+        f"i.outlet_id = {OUTLET_ID} "
+        f"AND i.created_at >= '{date}'::timestamp - interval '5 hours 30 minutes' "
+        f"AND i.created_at <  '{date}'::date + 1 - interval '5 hours 30 minutes'"))
 
 
 def fetch_ids(ids: list[int]) -> list[dict]:

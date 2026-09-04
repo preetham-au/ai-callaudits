@@ -36,7 +36,8 @@ CREATE TABLE IF NOT EXISTS runs (
 CREATE TABLE IF NOT EXISTS calls (
   interaction_id INTEGER PRIMARY KEY, run_id INTEGER, audit_date TEXT, agent_id INTEGER,
   campaign_id INTEGER, campaign_name TEXT, lead_id INTEGER, contact_id TEXT,
-  provider_sid TEXT, started_at TEXT, duration_s INTEGER, status TEXT, call_stage TEXT,
+  provider_sid TEXT, started_at TEXT, queued_at TEXT, ended_at TEXT,
+  duration_s INTEGER, status TEXT, call_stage TEXT,
   customer_name TEXT, reg_no TEXT, policy_no TEXT, turns INTEGER,
   score REAL, verdict TEXT, variables_checked INTEGER, variables_failed INTEGER,
   flow_score REAL, flags TEXT, disposition TEXT, disposition_verdict TEXT,
@@ -56,6 +57,14 @@ def db() -> sqlite3.Connection:
     c = sqlite3.connect(DB)
     c.row_factory = sqlite3.Row
     c.executescript(SCHEMA)
+    # `CREATE TABLE IF NOT EXISTS` leaves an existing table alone, so a column
+    # added to SCHEMA never reaches a database that already exists. save() reads
+    # the live columns, so a missing one is silently dropped rather than raised.
+    have = {d[1] for d in c.execute("PRAGMA table_info(calls)")}
+    for col, decl in (("queued_at", "TEXT"), ("ended_at", "TEXT")):
+        if col not in have:
+            c.execute(f"ALTER TABLE calls ADD COLUMN {col} {decl}")
+    c.commit()
     return c
 
 
@@ -90,7 +99,13 @@ def audit_one(row: dict, llm: bool, cached: dict | None) -> dict:
         "campaign_id": row["campaign_id"], "campaign_name": row.get("campaign_name"),
         "lead_id": row["lead_id"], "contact_id": str(row.get("contact_id") or "") or None,
         "provider_sid": row.get("provider_sid"),
-        "started_at": str(row["created_at"]), "duration_s": row.get("duration_s"),
+        # The conversation's own clock, IST -- see data._call_start. `queued_at`
+        # is kept because it is what the platform's own day filter uses, so a
+        # call missing from a Formi export can still be matched to its batch.
+        "started_at": str(row.get("started_at") or row["created_at"]),
+        "queued_at": str(row["created_at"]),
+        "ended_at": str(row["ended_time"]) if row.get("ended_time") else None,
+        "duration_s": row.get("duration_s"),
         "status": row.get("status"), "call_stage": row.get("call_stage"),
         "customer_name": av.get("customer_name"), "reg_no": av.get("reg_no"),
         "policy_no": av.get("policy_no"), "turns": len(turns),

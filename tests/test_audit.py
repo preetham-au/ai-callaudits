@@ -103,6 +103,28 @@ def test_silence_is_reported_but_not_scored():
     assert rec["variables_failed"] == len(missed), "silence still counted as not-right"
 
 
+def test_the_call_clock_is_the_conversation_not_the_queue():
+    """A batch of leads shares one `created_at`; the call happened much later.
+
+    Real values from interaction 5788410 and its batch-mates, which is what made
+    the call list stack thousands of calls onto a single 06:27:53.302174 and
+    print every clock 5h30m early.
+    """
+    from audit.data import _call_start
+
+    # Metabase hands back the IST-converted value; the tail of the attempt is
+    # the conversation, so a 35s call that ended 11:48:44 began 11:48:09.
+    assert _call_start("2026-09-03T11:48:44.699286+05:30", 35) == \
+        "2026-09-03T11:48:09.699286+05:30"
+    # Nobody spoke, so there is no conversation to back up to -- the caller
+    # falls back rather than getting a wrong time that looks precise.
+    assert _call_start("2026-09-03T11:48:44.699286+05:30", None) is None
+    assert _call_start(None, 35) is None
+    # A duration longer than the day still yields a real instant, not a crash.
+    assert _call_start("2026-09-03T00:00:10+05:30", 60).startswith("2026-09-02T23:59:10")
+    assert _call_start("not a timestamp", 35) is None
+
+
 def test_ground_truth_fixture_is_deidentified():
     f = Path(__file__).parent / "ground_truth_labels_2026-08-27.csv"
     rows = list(csv.DictReader(f.open(encoding="utf-8")))

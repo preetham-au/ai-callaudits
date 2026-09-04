@@ -153,6 +153,29 @@ reads 5,860s on a one-turn call. The real figure is
 on all 20 ground-truth rows. The reports repo independently settled on the same
 column.
 
+### The clock
+
+Two separate faults, both fixed in `audit/data.py`:
+
+`created_at` is not when the call happened — it is when the platform queued the
+row. A whole batch shares one microsecond (five leads at `06:27:53.302174`, one
+of which ended 49 minutes later), so the call list stacked 4,460 calls onto a
+single instant. The conversation is the tail of the last dial attempt:
+`ended_time - call_duration`. With no duration nobody spoke, so `ended_time` —
+when we stopped trying — is used instead; only if that is missing does the queue
+time stand in. The worst pile-up on 3 Sep falls from 4,460 rows to 57.
+
+`created_at` and `ended_time` are `timestamp WITHOUT time zone` holding **naive
+UTC**, the convention the reports repo documents in `interaction_export.sql`.
+Metabase's report timezone is Asia/Kolkata, so it stamped a `+05:30` onto the
+naive value without converting it, and every clock in the UI ran 5h30m early —
+`06:18 am` for a call placed at `11:48 IST`. The select now converts
+(`AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata'`) so the offset is true.
+
+Consequently an audit day is now an **IST** day. `fetch_day` shifts the window
+rather than converting the column, so the `created_at` index still applies. The
+day's membership changes slightly: 3 Sep went from 10,426 rows to 8,857.
+
 ### Retries
 
 The gateway in front of Metabase intermittently 502/503/504s on queries that

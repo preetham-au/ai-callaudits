@@ -210,7 +210,11 @@ def export_csv(date: str | None = None, agent_id: int | None = None, verdict: st
     for r in rows:
         w.writerow({
             "interaction_id": r["interaction_id"], "contact_id": r["contact_id"] or "",
-            "campaign_name": r["campaign_name"] or "", "Call_date": "", "": "",
+            "campaign_name": r["campaign_name"] or "",
+            # Was shipped empty on every row. It is the client sheet's only clock,
+            # so a reviewer pulling a recording had no way to tell which attempt
+            # they were listening to. IST, seconds included, sortable as text.
+            "Call_date": (r["started_at"] or "")[:19].replace("T", " "), "": "",
             "transcript": "\n".join(f"{t['role'].upper()}: {t['content']}" for t in r["transcript"]),
             "customer_name": r["customer_name"] or "", "call_stage": r["call_stage"] or "",
             "call_recording_url": REC_BASE + (r["provider_sid"] or ""),
