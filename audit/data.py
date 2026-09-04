@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 from datetime import datetime, timedelta
@@ -128,6 +129,30 @@ LEFT JOIN public.campaigns c ON c.id = i.campaign_id
 """
 
 
+# `lead_stage_reasoning` carries the engine's own verdict as `group=… sub=…
+# decision=… conf=…`. `lead_stage_computed` is only the coarse half of it: the
+# engine writes sub=did_not_pick under both computed='did_not_pick' and
+# computed='not_contacted', and writes computed='contacted' with no sub at all
+# when it defers to HUMAN_REVIEW. Counting on `computed` therefore splits one
+# outcome across two labels. The sub is the label the reviewers audit against.
+#
+# Only rows from the disposition engine carry the pattern; `immediate_*` sources
+# write prose ("Telephony provider failed before customer connection."), which
+# matches nothing and correctly yields no sub.
+_REASON_KV = re.compile(r"\b(group|sub|decision|conf)=(\S+)")
+
+
+def _parse_reasoning(text) -> dict:
+    kv = dict(_REASON_KV.findall(str(text or "")))
+    conf = kv.get("conf")
+    try:
+        conf = float(conf) if conf is not None else None
+    except ValueError:
+        conf = None
+    return {"disposition_group": kv.get("group"), "disposition_sub": kv.get("sub"),
+            "disposition_decision": kv.get("decision"), "disposition_conf": conf}
+
+
 def _clean(rows: list[dict]) -> list[dict]:
     for r in rows:
         for k in ("additional_variables", "messages"):
@@ -147,6 +172,11 @@ def _clean(rows: list[dict]) -> list[dict]:
         # thousands of rows, so it is the last resort.
         r["started_at"] = (_call_start(r.get("ended_time"), r["duration_s"])
                            or r.get("ended_time") or r.get("created_at"))
+        r.update(_parse_reasoning(r.get("lead_stage_reasoning")))
+        # Subs are written in mixed case (`did_not_pick` next to `Voicemail_IVR`),
+        # so they are folded to one case or the same outcome counts as two.
+        sub = r.get("disposition_sub")
+        r["disposition"] = sub.lower() if sub else r.get("lead_stage_computed")
     return rows
 
 

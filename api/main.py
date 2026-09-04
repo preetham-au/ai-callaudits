@@ -10,6 +10,7 @@ import json
 import sqlite3
 from collections import defaultdict
 from contextlib import asynccontextmanager
+from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, Response
@@ -18,12 +19,18 @@ from pydantic import BaseModel
 from api import jobs as JOBS
 from api import manual as MANUAL
 from audit.data import AUDIT_DATE, ROOT
+from audit import run as RUN
 from audit.judge import MODEL, TRANSCRIPT_BUDGET, est_tokens
 from audit.run import DB
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    # Bring the schema up to date before serving. This process only ever reads,
+    # via its own sqlite3 connection, so without this a column added to
+    # audit.run.SCHEMA does not exist until someone happens to run an audit --
+    # and every read that selects it fails until they do.
+    RUN.db().close()
     JOBS.startup()
     yield
 
@@ -40,8 +47,14 @@ def q(sql: str, args=()) -> list[dict]:
     conn.row_factory = sqlite3.Row
     try:
         rows = [dict(r) for r in conn.execute(sql, args)]
-    except sqlite3.OperationalError:  # nothing audited yet
-        return []
+    except sqlite3.OperationalError as e:
+        # Only an absent table means "nothing audited yet". Swallowing every
+        # OperationalError turned a column this file selects but the database
+        # does not have into a silent empty page, which reads as a quiet day
+        # rather than the schema drift it is.
+        if "no such table" in str(e):
+            return []
+        raise
     finally:
         conn.close()
     for r in rows:
@@ -54,18 +67,46 @@ def q(sql: str, args=()) -> list[dict]:
 LIST_COLS = ("interaction_id, agent_id, campaign_id, lead_id, started_at, duration_s, status, "
              "call_stage, customer_name, reg_no, policy_no, turns, score, verdict, "
              "variables_checked, variables_failed, flags, disposition, "
+             "disposition_group, disposition_sub, lead_stage_computed, "
              "verification_error, summary")
 
 
 VAR_VERDICTS = ("missed", "wrong")
 
+# `Annotated[..., Query(alias="q")] = None`, never `= Query(None, alias="q")`.
+# The latter makes the default a Query *object*, which is truthy, so any code
+# calling these routes as plain functions -- the tests, audit.reconcile -- gets a
+# text filter that matches nothing and a silently empty result.
+Q = Annotated[str | None, Query(alias="q")]
 
-def _filters(date, agent_id, verdict, text, variable=None, variable_verdict=None):
+# The engine's own label for a machine picking up. `disposition` is the reasoning
+# sub (see data._parse_reasoning), not `interactions.call_stage`, which disagrees
+# with the engine on a third of the day.
+VOICEMAIL = "voicemail_ivr"
+
+
+def _filters(date, agent_id, verdict, text, variable=None, variable_verdict=None,
+             voicemail=None, min_duration=None):
+    """The single WHERE every read builds on.
+
+    Overview, the call list and the CSV all route through here, so a filter can
+    never mean one thing on screen and another in the download. Adding a filter
+    to only one of the three is how the dashboard and the sheet drifted apart.
+    """
     where, args = ["audit_date = ?"], [date]
     if agent_id:
         where.append("agent_id = ?"); args.append(agent_id)
     if verdict:
         where.append("verdict = ?"); args.append(verdict)
+    if voicemail in ("only", "exclude"):
+        where.append(f"IFNULL(disposition,'') {'=' if voicemail == 'only' else '!='} ?")
+        args.append(VOICEMAIL)
+    if min_duration is not None:
+        # Strictly greater, and a NULL duration does not clear the bar: an
+        # unknown length is not evidence of a long call. IFNULL rather than a
+        # bare comparison, because `NULL > 20` is NULL and would drop the row
+        # from a count while leaving it in a "NOT" count somewhere else.
+        where.append("IFNULL(duration_s, -1) > ?"); args.append(min_duration)
     if variable:
         # The Overview's variable table is a list of questions ("who got `red`
         # wrong?"); this is the answer. Verdicts live inside the `variables`
@@ -106,16 +147,29 @@ def health():
 
 @app.get("/api/dates")
 def dates():
+    # IFNULL, because `NULL != 'x'` is NULL in SQL and SUM skips it, while
+    # /api/summary counts the same row in Python where `None != 'x'` is True.
+    # One unwritten verdict was enough to make the two pages disagree.
     return q("SELECT audit_date AS date, COUNT(*) AS calls, "
-             "SUM(verdict != 'no_transcript') AS audited "
+             "SUM(IFNULL(verdict,'') != 'no_transcript') AS audited "
              "FROM calls GROUP BY audit_date ORDER BY audit_date DESC")
 
 
 @app.get("/api/summary")
-def summary(date: str | None = None):
+def summary(date: str | None = None, agent_id: int | None = None, verdict: str | None = None,
+            variable: str | None = None, variable_verdict: str | None = None,
+            voicemail: str | None = None, min_duration: int | None = None):
+    """The Overview's numbers, under exactly the filters the download uses.
+
+    This used to take `date` alone, so every figure on screen was the whole day
+    while the CSV beside it was a filtered subset -- the two could not agree by
+    construction, and the operator re-downloaded to find the real number.
+    """
     date = date or latest_date()
-    rows = q(f"SELECT {LIST_COLS} FROM calls WHERE audit_date = ?", (date,))
-    det = q("SELECT variables FROM calls WHERE audit_date = ? AND turns > 0", (date,))
+    where, args = _filters(date, agent_id, verdict, None, variable, variable_verdict,
+                           voicemail, min_duration)
+    rows = q(f"SELECT {LIST_COLS} FROM calls WHERE {where}", args)
+    det = q(f"SELECT variables FROM calls WHERE {where} AND turns > 0", args)
     aud = [r for r in rows if r["verdict"] != "no_transcript"]
     scored = [r["score"] for r in aud if r["score"] is not None]
 
@@ -165,9 +219,10 @@ def summary(date: str | None = None):
 
 @app.get("/api/calls")
 def calls(date: str | None = None, agent_id: int | None = None, verdict: str | None = None,
-          q_: str | None = Query(None, alias="q"), variable: str | None = None,
-          variable_verdict: str | None = None, page: int = 1, page_size: int = 50):
-    where, args = _filters(date or latest_date(), agent_id, verdict, q_, variable, variable_verdict)
+          q_: Q = None, variable: str | None = None, variable_verdict: str | None = None, voicemail: str | None = None,
+          min_duration: int | None = None, page: int = 1, page_size: int = 50):
+    where, args = _filters(date or latest_date(), agent_id, verdict, q_, variable,
+                           variable_verdict, voicemail, min_duration)
     total = q(f"SELECT COUNT(*) c FROM calls WHERE {where}", args)
     page, page_size = max(1, page), min(max(1, page_size), 500)
     items = q(f"SELECT {LIST_COLS} FROM calls WHERE {where} ORDER BY started_at, interaction_id "
@@ -192,17 +247,27 @@ def call_detail(interaction_id: int):
     return r
 
 
+# `call_stage` carries the disposition, not `interactions.call_stage`. That legacy
+# column disagrees with the engine on a third of the day -- 3,137 calls on 3 Sep
+# read `dnp` while the engine had them as `hung_up`, i.e. the customer answered --
+# so anyone counting did-not-picks off this sheet counted connected calls as
+# unanswered. The raw value is kept in `call_stage_legacy` rather than dropped.
 CSV_COLS = ["interaction_id", "contact_id", "campaign_name", "Call_date", "", "transcript",
             "customer_name", "call_stage", "call_recording_url", "call_duration",
-            "Calling Summary", "Verfication Error", "Dispostion Error", "Remarks", "policy_no"]
+            "Calling Summary", "Verfication Error", "Dispostion Error", "Remarks", "policy_no",
+            "disposition_group", "disposition_sub", "call_stage_legacy"]
 REC_BASE = "https://formi-prod-2.s3.eu-north-1.amazonaws.com/onboarding/"
 
 
 @app.get("/api/export.csv")
 def export_csv(date: str | None = None, agent_id: int | None = None, verdict: str | None = None,
-               variable: str | None = None, variable_verdict: str | None = None):
+               q_: Q = None, variable: str | None = None, variable_verdict: str | None = None,
+               voicemail: str | None = None, min_duration: int | None = None):
+    # `q` was accepted by the call list and silently dropped here, so a searched
+    # table of 12 rows downloaded as the whole day.
     date = date or latest_date()
-    where, args = _filters(date, agent_id, verdict, None, variable, variable_verdict)
+    where, args = _filters(date, agent_id, verdict, q_, variable, variable_verdict,
+                           voicemail, min_duration)
     rows = q(f"SELECT * FROM calls WHERE {where} ORDER BY started_at, interaction_id", args)
     buf = io.StringIO()
     w = csv.DictWriter(buf, CSV_COLS, extrasaction="ignore")
@@ -216,7 +281,11 @@ def export_csv(date: str | None = None, agent_id: int | None = None, verdict: st
             # they were listening to. IST, seconds included, sortable as text.
             "Call_date": (r["started_at"] or "")[:19].replace("T", " "), "": "",
             "transcript": "\n".join(f"{t['role'].upper()}: {t['content']}" for t in r["transcript"]),
-            "customer_name": r["customer_name"] or "", "call_stage": r["call_stage"] or "",
+            "customer_name": r["customer_name"] or "",
+            "call_stage": r["disposition"] or "",
+            "disposition_group": r["disposition_group"] or "",
+            "disposition_sub": r["disposition_sub"] or "",
+            "call_stage_legacy": r["call_stage"] or "",
             "call_recording_url": REC_BASE + (r["provider_sid"] or ""),
             "call_duration": r["duration_s"] if r["duration_s"] is not None else "",
             "Calling Summary": r["summary"] or "",
@@ -224,11 +293,20 @@ def export_csv(date: str | None = None, agent_id: int | None = None, verdict: st
             "Dispostion Error": "NA",  # column kept for the client sheet; not verified
             "Remarks": "", "policy_no": r["policy_no"] or "",
         })
+    # The filters go in the filename. Three downloads of one day otherwise land
+    # in the reviewer's folder under one name and silently overwrite each other,
+    # and a sheet on someone's desk carries no record of what it excluded.
+    name = "_".join(filter(None, [
+        f"call_audits_{date}",
+        {"only": "voicemail", "exclude": "novoicemail"}.get(voicemail),
+        f"gt{min_duration}s" if min_duration is not None else None,
+        {125: "hindi", 127: "tamil"}.get(agent_id),
+        verdict, variable]))
     return Response(
         # BOM so Excel opens the Devanagari/Tamil transcript column correctly.
         content="﻿" + buf.getvalue(),
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="call_audits_{date}.csv"'})
+        headers={"Content-Disposition": f'attachment; filename="{name}.csv"'})
 
 
 @app.get("/api/runs")

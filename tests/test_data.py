@@ -85,6 +85,35 @@ def test_a_capped_response_raises_rather_than_truncating():
         D.ENV.update(real_env)
 
 
+def test_disposition_comes_from_the_reasoning_sub():
+    """The sub is the label; `lead_stage_computed` is only its coarse half."""
+    rows = D._clean([
+        # Same outcome the engine split across two `computed` values.
+        {"lead_stage_computed": "did_not_pick",
+         "lead_stage_reasoning": "group=NOT_CONTACTED sub=did_not_pick decision=AUTO_APPLY conf=0.98"},
+        {"lead_stage_computed": "not_contacted",
+         "lead_stage_reasoning": "group=NOT_CONTACTED sub=did_not_pick decision=AUTO_APPLY conf=0.98"},
+        # Mixed-case sub, folded so it does not count as a separate outcome.
+        {"lead_stage_computed": "voicemail_ivr",
+         "lead_stage_reasoning": "group=CONTACTED sub=Voicemail_IVR decision=AUTO_APPLY conf=1.00"},
+        # No sub: the engine deferred. Fall back rather than blank the row.
+        {"lead_stage_computed": "contacted",
+         "lead_stage_reasoning": "group=CONTACTED decision=HUMAN_REVIEW conf=1.00"},
+        # Non-engine source writes prose, which must not parse into a sub.
+        {"lead_stage_computed": "telephony_failed",
+         "lead_stage_reasoning": "Telephony provider failed before customer connection."},
+        {"lead_stage_computed": None, "lead_stage_reasoning": None},
+    ])
+    assert [r["disposition"] for r in rows] == [
+        "did_not_pick", "did_not_pick", "voicemail_ivr",
+        "contacted", "telephony_failed", None]
+    assert rows[0]["disposition_group"] == "NOT_CONTACTED"
+    assert rows[0]["disposition_decision"] == "AUTO_APPLY"
+    assert rows[0]["disposition_conf"] == 0.98
+    assert rows[3]["disposition_sub"] is None
+    assert rows[4]["disposition_group"] is None
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

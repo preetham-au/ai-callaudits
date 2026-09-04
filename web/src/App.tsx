@@ -3,6 +3,7 @@ import { ClipboardCheck, LayoutDashboard, ListChecks, Menu, PlayCircle } from "l
 import { MOCK_EVENT, isMocking, useResource } from "./api/client";
 import type { AuditDay, Health } from "./api/types";
 import { todayIst } from "./components/common";
+import { EMPTY_SCOPE, ScopeFilters, type Scope } from "./components/scope";
 import { href, useRoute, type Route } from "./route";
 import { CallDetailPage } from "./pages/CallDetail";
 import { CallListPage } from "./pages/CallList";
@@ -32,6 +33,10 @@ export default function App() {
    * re-loading the chosen one.
    */
   const [picked, setPicked] = useState("");
+  // Same reasoning as the date: the scope belongs to the investigation, not to
+  // one page. Overview and Calls read it, and the CSV link is built from it, so
+  // the figure on screen and the row count in the download are the same query.
+  const [scope, setScope] = useState<Scope>(EMPTY_SCOPE);
   const date = picked || health.data?.audit_date || "";
   const days = dates.data ?? [];
   const dated = route.name === "overview" || route.name === "calls";
@@ -123,6 +128,7 @@ export default function App() {
                 />
               </label>
             ) : null}
+            {dated ? <ScopeFilters value={scope} onChange={setScope} /> : null}
             <span className="sync-pill">
               <span className={`sync-dot${mock ? " stale" : ""}`} aria-hidden />
               {mock ? "Fixtures" : `${health.data?.calls_audited ?? 0} calls audited`}
@@ -131,9 +137,14 @@ export default function App() {
         </header>
 
         <main id="content" tabIndex={-1}>
-          {route.name === "overview" ? <OverviewPage date={date} /> : null}
+          {route.name === "overview" ? <OverviewPage date={date} scope={scope} /> : null}
           {route.name === "calls" ? (
-            <CallListPage date={date} variable={route.variable} variableVerdict={route.variableVerdict} />
+            <CallListPage
+              date={date}
+              scope={scope}
+              variable={route.variable}
+              variableVerdict={route.variableVerdict}
+            />
           ) : null}
           {route.name === "call" ? <CallDetailPage id={route.id} /> : null}
           {route.name === "manual" ? <ManualAuditPage /> : null}

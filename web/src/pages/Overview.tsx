@@ -1,6 +1,7 @@
 import { useResource } from "../api/client";
 import type { Summary } from "../api/types";
 import { ErrorState, LoadingBlock, Section, num, pct } from "../components/common";
+import { scopeLabel, withScope, type Scope } from "../components/scope";
 import { href } from "../route";
 
 /**
@@ -27,14 +28,23 @@ function Bar({ value }: { value: number }) {
   );
 }
 
-export function OverviewPage({ date }: { date: string }) {
-  const { data, error, loading } = useResource<Summary>(date ? `/summary?date=${date}` : null);
+export function OverviewPage({ date, scope }: { date: string; scope: Scope }) {
+  const params = withScope(new URLSearchParams({ date }), scope);
+  const { data, error, loading } = useResource<Summary>(date ? `/summary?${params}` : null);
+  const filtered = scopeLabel(scope);
 
   return (
     <>
       <div className="page-head">
         <h1>Overview</h1>
         <p>{data ? `Audit for ${data.date}` : "Loading the day's audit"}</p>
+        {/* Every number below is under this filter. Unlabelled, a filtered count
+            reads as the whole day, which is the mismatch people chase. */}
+        {filtered ? (
+          <p className="flags">
+            <span className="tag">{filtered}</span>
+          </p>
+        ) : null}
       </div>
 
       <div className="workspace">
@@ -45,9 +55,12 @@ export function OverviewPage({ date }: { date: string }) {
           /* A day nobody audited is not the same as a day that went perfectly.
              Say so, rather than rendering a wall of confident zeroes. */
           <div className="empty-state">
-            <strong>No audit for {data.date}</strong>
-            Nothing has been audited for this date. Pick another day, or start a
-            run for it on the Runs page.
+            {/* A filter that excludes everything is not an unaudited day, and
+                saying so would send the operator to start a run they don't need. */}
+            <strong>{filtered ? `No calls match on ${data.date}` : `No audit for ${data.date}`}</strong>
+            {filtered
+              ? `No call on this day is ${filtered}. Clear the filter, or pick another day.`
+              : "Nothing has been audited for this date. Pick another day, or start a run for it on the Runs page."}
           </div>
         ) : (
           <div className="grid">

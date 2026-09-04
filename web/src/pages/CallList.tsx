@@ -3,6 +3,7 @@ import { Download } from "lucide-react";
 import { API_BASE, useResource } from "../api/client";
 import type { CallsPage } from "../api/types";
 import { ErrorState, LoadingBlock, Section, VerdictPill, clockIst, dayIst, num, score, text } from "../components/common";
+import { scopeLabel, withScope, type Scope } from "../components/scope";
 import { href } from "../route";
 
 const PAGE_SIZE = 50;
@@ -12,12 +13,15 @@ type Filters = {
   agent: string;
   verdict: string;
   q: string;
+  scope: Scope;
   variable?: string;
   variableVerdict?: "missed" | "wrong";
 };
 
+/* One builder for the table and for the download link. Two builders is how a
+   CSV ends up holding a different set of calls than the table above it. */
 function query(filters: Filters, page?: number): string {
-  const p = new URLSearchParams();
+  const p = withScope(new URLSearchParams(), filters.scope);
   if (filters.date) p.set("date", filters.date);
   if (filters.agent) p.set("agent_id", filters.agent);
   if (filters.verdict) p.set("verdict", filters.verdict);
@@ -33,10 +37,12 @@ function query(filters: Filters, page?: number): string {
 
 export function CallListPage({
   date,
+  scope,
   variable,
   variableVerdict,
 }: {
   date: string;
+  scope: Scope;
   variable?: string;
   variableVerdict?: "missed" | "wrong";
 }) {
@@ -50,9 +56,10 @@ export function CallListPage({
 
   // Page 4 of one day is rarely page 4 of another, and an out-of-range page
   // reads as "no calls" when the day is in fact full of them.
-  useEffect(() => setPage(1), [date, variable, variableVerdict]);
+  useEffect(() => setPage(1), [date, variable, variableVerdict, scope.voicemail, scope.minDuration]);
 
-  const filters: Filters = { date, agent, verdict, q: applied, variable, variableVerdict };
+  const filters: Filters = { date, agent, verdict, q: applied, scope, variable, variableVerdict };
+  const scoped = scopeLabel(scope);
   const { data, error, loading } = useResource<CallsPage>(date ? `/calls?${query(filters, page)}` : null);
   const pages = data ? Math.max(1, Math.ceil(data.total / data.page_size)) : 1;
 
@@ -70,6 +77,12 @@ export function CallListPage({
         <p>{data ? `${data.total} calls match on ${date}` : "Loading calls"}</p>
         {/* Arrived from the Overview's variable table. Say so in words and give
             the way back out, or the page looks like it has simply lost calls. */}
+        {scoped ? (
+          <p className="flags">
+            {/* The download button next to the table sends exactly this set. */}
+            <span className="tag">{scoped}</span>
+          </p>
+        ) : null}
         {variable ? (
           <p className="flags">
             <span className="tag">
@@ -92,7 +105,10 @@ export function CallListPage({
             /* Server-rendered, in the operator's existing sheet format. Nothing is
                assembled here — the CSV is the API's job, not the browser's. */
             <a className="btn" href={`${API_BASE}/export.csv?${query(filters)}`} download>
-              <Download size={14} aria-hidden /> Download CSV
+              {/* The count is on the button, so what you are about to download is
+                  visible before you download it -- the row count in the file is
+                  this number, same query, same filters. */}
+              <Download size={14} aria-hidden /> Download CSV{data ? ` (${data.total})` : ""}
             </a>
           }
         >

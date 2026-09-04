@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS calls (
   customer_name TEXT, reg_no TEXT, policy_no TEXT, turns INTEGER,
   score REAL, verdict TEXT, variables_checked INTEGER, variables_failed INTEGER,
   flow_score REAL, flags TEXT, disposition TEXT, disposition_verdict TEXT,
+  disposition_group TEXT, disposition_sub TEXT, disposition_decision TEXT,
+  disposition_conf REAL, lead_stage_computed TEXT,
   verification_error TEXT, disposition_error TEXT, summary TEXT,
   transcript TEXT, variables TEXT, flow TEXT, disposition_check TEXT, judge TEXT,
   transcript_truncated INTEGER);
@@ -61,7 +63,10 @@ def db() -> sqlite3.Connection:
     # added to SCHEMA never reaches a database that already exists. save() reads
     # the live columns, so a missing one is silently dropped rather than raised.
     have = {d[1] for d in c.execute("PRAGMA table_info(calls)")}
-    for col, decl in (("queued_at", "TEXT"), ("ended_at", "TEXT")):
+    for col, decl in (("queued_at", "TEXT"), ("ended_at", "TEXT"),
+                      ("disposition_group", "TEXT"), ("disposition_sub", "TEXT"),
+                      ("disposition_decision", "TEXT"), ("disposition_conf", "REAL"),
+                      ("lead_stage_computed", "TEXT")):
         if col not in have:
             c.execute(f"ALTER TABLE calls ADD COLUMN {col} {decl}")
     c.commit()
@@ -109,7 +114,15 @@ def audit_one(row: dict, llm: bool, cached: dict | None) -> dict:
         "status": row.get("status"), "call_stage": row.get("call_stage"),
         "customer_name": av.get("customer_name"), "reg_no": av.get("reg_no"),
         "policy_no": av.get("policy_no"), "turns": len(turns),
-        "disposition": row.get("lead_stage_computed"),
+        # The engine's own sub-label, not the coarse `lead_stage_computed` —
+        # see data._parse_reasoning. `lead_stage_computed` is kept alongside so a
+        # disagreement between the two stays visible instead of being overwritten.
+        "disposition": row.get("disposition"),
+        "disposition_group": row.get("disposition_group"),
+        "disposition_sub": row.get("disposition_sub"),
+        "disposition_decision": row.get("disposition_decision"),
+        "disposition_conf": row.get("disposition_conf"),
+        "lead_stage_computed": row.get("lead_stage_computed"),
     }
     if not turns:
         return {**base, "score": None, "verdict": "no_transcript", "flow_score": None,
