@@ -218,6 +218,17 @@ def save(conn, run_id: int, date: str, recs: list[dict]):
                 for c in cols]
         conn.execute(f"INSERT OR REPLACE INTO calls ({','.join(cols)}) "
                      f"VALUES ({','.join('?' * len(cols))})", vals)
+    # A re-run replaces rows by interaction_id but had no way to drop one that
+    # left the day. When the day boundary moved from UTC to IST, 1,569 early-4-Sep
+    # rows stayed filed under 3 Sep with their old clocks, and the page showed
+    # 10,426 calls for a day that holds 8,857. Anything still tagged with this
+    # date but not touched by this run is no longer part of it -- a row that
+    # merely moved to another day has just had its audit_date rewritten above,
+    # so it is not caught here. Guarded on a non-empty fetch: a run that came
+    # back with nothing is a failure, not an empty day, and must not erase one.
+    if recs:
+        conn.execute("DELETE FROM calls WHERE audit_date = ? AND run_id IS NOT ?",
+                     (date, run_id))
     conn.commit()
 
 

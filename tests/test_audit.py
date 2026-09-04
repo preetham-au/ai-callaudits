@@ -125,6 +125,29 @@ def test_the_call_clock_is_the_conversation_not_the_queue():
     assert _call_start("not a timestamp", 35) is None
 
 
+def test_a_rerun_drops_calls_that_left_the_day():
+    """Re-running a day must not leave yesterday's answer lying underneath it."""
+    import tempfile
+    from audit import run as RUN
+
+    RUN.DB = Path(tempfile.mkdtemp()) / "audits.db"
+    conn = RUN.db()
+
+    def n():
+        return conn.execute("SELECT COUNT(*) FROM calls WHERE audit_date='2026-09-03'").fetchone()[0]
+
+    RUN.save(conn, 1, "2026-09-03", [{"interaction_id": 1}, {"interaction_id": 2}])
+    assert n() == 2
+    # The day boundary moves: call 2 is no longer part of the 3rd, call 3 now is.
+    RUN.save(conn, 2, "2026-09-03", [{"interaction_id": 1}, {"interaction_id": 3}])
+    assert n() == 2, "the row that left the day is still filed under it"
+    assert {r[0] for r in conn.execute(
+        "SELECT interaction_id FROM calls WHERE audit_date='2026-09-03'")} == {1, 3}
+    # A run that fetched nothing is a failure, not an empty day.
+    RUN.save(conn, 3, "2026-09-03", [])
+    assert n() == 2, "an empty fetch erased a real day"
+
+
 def test_ground_truth_fixture_is_deidentified():
     f = Path(__file__).parent / "ground_truth_labels_2026-08-27.csv"
     rows = list(csv.DictReader(f.open(encoding="utf-8")))
