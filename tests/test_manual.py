@@ -69,6 +69,18 @@ def _seed(hindi: int, tamil: int, junk: bool = True, other: int = 0) -> None:
         x.execute("DELETE FROM manual_audits")
 
 
+def _submit_all(*auditors: str) -> int:
+    """Fill in every call dealt to these reviewers. The report is submitted rows
+    only, so a test that never submits is testing an empty file."""
+    n = 0
+    for a in auditors:
+        for item in M.queue(DATE, a)["items"]:
+            M.submit(DATE, a, item["interaction_id"],
+                     {"info_accuracy": "Accurate", "verdict": "Pass"})
+            n += 1
+    return n
+
+
 def _all():
     with M._db() as c:
         return [dict(r) for r in c.execute(
@@ -173,13 +185,46 @@ def test_submit_records_the_reviewers_call_and_refuses_other_peoples():
 
 def test_report_carries_the_workbook_columns():
     _seed(90, 10)
-    M.queue(DATE, "HV")
+    done = _submit_all("HV")
     rows = M.report(DATE, DATE)
     assert rows and set(M.REPORT_COLS) == set(rows[0])
     r = rows[0]
     assert r["Call Date"] == DATE and r["Call Time (IST)"] == "09:00"
     assert r["Duration (mm:ss)"] == "3:00"
     assert r["Pre-Call"] == "RED: 2026-09-07"
+
+    # Assignment deals ten to every reviewer the moment a day is opened, so the
+    # table holds three times what one reviewer finished. Only the finished rows
+    # belong in the file -- the rest would read as blank verdicts on calls
+    # nobody had listened to.
+    assert len(rows) == done, f"{len(rows)} rows exported, {done} actually submitted"
+    assert len(_all()) > done, "the fixture is meant to hold unsubmitted rows too"
+
+
+def test_a_zero_discount_is_not_a_value_to_quote():
+    """NCB/DTD of 0 means the feed sent no discount, so the agent is supposed to
+    leave the clause out. Listing "DTD: 0" as a pre-call value told the reviewer
+    to listen for a figure that should never have been said."""
+    _seed(0, 0, junk=False)
+    with sqlite3.connect(TMP) as c:
+        c.execute(
+            "INSERT INTO calls (interaction_id, audit_date, agent_id, started_at, "
+            "duration_s, provider_sid, disposition, verdict, score, turns, transcript, "
+            "variables) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (2001, DATE, 125, f"{DATE}T09:00:00+05:30", 180, "sid", "call_back",
+             "pass", 90, 8, json.dumps([{"role": "user", "content": "hi"}]),
+             json.dumps([{"name": "red", "expected_raw": "2026-09-07"},
+                         {"name": "ncb", "expected_raw": "0"},
+                         {"name": "dtd", "expected_raw": "0.00"},
+                         {"name": "premium", "expected_raw": "null"},
+                         {"name": "make", "expected_raw": None}])))
+    _submit_all("Preetham")
+    pre = M.report(DATE, DATE)[0]["Pre-Call"]
+    # Exactly one clause: the only value the feed actually supplied. ("0" cannot
+    # be substring-checked here -- the RED date contains one.)
+    assert pre == "RED: 2026-09-07", pre
+    for gone in ("NCB", "DTD", "PREMIUM", "MAKE", "null"):
+        assert gone not in pre, f"{gone!r} still in the pre-call line: {pre!r}"
 
 
 def test_report_can_be_narrowed_to_one_language():
@@ -191,7 +236,7 @@ def test_report_can_be_narrowed_to_one_language():
     # Seeded with a third agent id on purpose: 124 is in the live data and is
     # labelled Hindi. Matching agent_id == 125 exactly put it in NEITHER file.
     _seed(60, 10, other=30)
-    M.queue(DATE, "HV")
+    _submit_all("HV", "Preetham", "Swarna")
     both = M.report(DATE, DATE)
     hindi = M.report(DATE, DATE, 125)
     tamil = M.report(DATE, DATE, 127)

@@ -94,7 +94,10 @@ export function ManualAuditPage() {
                 }`}
                 download
               >
-                <Download size={14} aria-hidden /> Download report
+                {/* Says "submitted" because it means it: assignment deals ten to
+                    everyone the moment a day is opened, so the file is always a
+                    fraction of what is on screen. */}
+                <Download size={14} aria-hidden /> Download submitted
               </a>
             </>
           }

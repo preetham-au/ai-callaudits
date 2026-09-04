@@ -70,7 +70,16 @@ function VariableRow({ v, onCite }: { v: VariableCheck; onCite: (i: number) => v
       <dl className="kv">
         <dt>Expected</dt>
         <dd className="expected">
-          {v.expected_raw === "null" || v.expected_raw === "" ? <Nul /> : v.expected_raw}
+          {/* Same set the engine treats as "not injected" (rules.ABSENT). A zero
+              NCB or DTD is no discount at all, so there was nothing to say —
+              printing "0" read as a value the agent had failed to quote. */}
+          {["", "null", "none", "na", "n/a", "nil", "-", "0", "0.0", "0.00", "zero"].includes(
+            (v.expected_raw ?? "").trim().toLowerCase(),
+          ) ? (
+            <Nul />
+          ) : (
+            v.expected_raw
+          )}
           {v.expected_spoken ? <span className="muted"> · spoken as “{v.expected_spoken}”</span> : null}
         </dd>
         <dt>Found</dt>

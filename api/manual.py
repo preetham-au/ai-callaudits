@@ -20,6 +20,7 @@ from datetime import datetime, timedelta
 
 from api.jobs import IST, check_date
 from api.jobs import _db as _jobs_db
+from audit.rules import present
 
 PER_AUDITOR = 10
 
@@ -213,13 +214,21 @@ _CALL_COLS = ("calls.agent_id, calls.started_at, calls.duration_s, calls.custome
 
 
 def _precall(variables_json: str | None) -> str:
-    """The injected values, in the workbook's own `RED: ...; DTD: ...` shape."""
+    """The injected values, in the workbook's own `RED: ...; DTD: ...` shape.
+
+    Only values that were actually supplied. A zero NCB or DTD means the feed
+    sent no discount, so the agent is *supposed* to leave the clause out
+    entirely — printing "DTD: 0" told the reviewer to listen for a figure that
+    should never have been said, and a call that correctly stayed silent read as
+    a miss. `present()` is the engine's own test, so the Pre-Call column now
+    lists exactly what the engine required (it also drops "null", "NA", "-").
+    """
     try:
         rows = json.loads(variables_json or "[]")
     except ValueError:
         return ""
     return "; ".join(f"{v['name'].upper()}: {v['expected_raw']}"
-                     for v in rows if v.get("expected_raw"))
+                     for v in rows if present(v.get("expected_raw")))
 
 
 def _hydrate(r: sqlite3.Row) -> dict:
@@ -318,7 +327,14 @@ def report(date_from: str, date_to: str, agent_id: int | None = None) -> list[di
     """
     check_date(date_from)
     check_date(date_to)
-    where, args = "m.audit_date BETWEEN ? AND ?", [date_from, date_to]
+    # Submitted only. Assignment is lazy and generous -- ten calls are dealt to
+    # every reviewer the moment anyone opens a day -- so the table holds far more
+    # rows than anyone has actually listened to (150 dealt against 6 done, the
+    # day this was found). Exporting those unfilled rows shipped a report that
+    # was mostly blank verdicts, and read as though reviewers had passed calls
+    # they had never opened.
+    where, args = ("m.submitted_at IS NOT NULL AND m.audit_date BETWEEN ? AND ?",
+                   [date_from, date_to])
     if agent_id is not None:
         # `IS NOT` rather than `!=` so a NULL agent_id still lands in Hindi
         # instead of being silently dropped by SQL's three-valued logic.
