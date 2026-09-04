@@ -1,12 +1,13 @@
 import { useRef, useState } from "react";
 import { ArrowLeft, CornerDownRight } from "lucide-react";
 import { useResource } from "../api/client";
-import type { CallDetail, VariableCheck, Verdict } from "../api/types";
+import type { CallDetail, VariableCheck, VariableVerdict } from "../api/types";
 import {
   ErrorState,
   LoadingBlock,
   Nul,
   Section,
+  VariablePill,
   VerdictPill,
   clockIst,
   duration,
@@ -14,6 +15,7 @@ import {
   num,
   score,
   text,
+  varTone,
 } from "../components/common";
 import { href } from "../route";
 
@@ -33,7 +35,7 @@ function VerdictRow({
   children,
 }: {
   name: string;
-  verdict: Verdict;
+  verdict: VariableVerdict;
   turnIndex: number | null;
   onCite: (index: number) => void;
   children: React.ReactNode;
@@ -41,7 +43,7 @@ function VerdictRow({
   const body = (
     <>
       <span className="verdict-name">{name}</span>
-      <VerdictPill verdict={verdict} />
+      <VariablePill verdict={verdict} />
       {children}
       <span className="verdict-meta">
         {turnIndex === null ? (
@@ -55,10 +57,10 @@ function VerdictRow({
     </>
   );
 
-  if (turnIndex === null) return <div className={`verdict-row ${verdict}`}>{body}</div>;
+  if (turnIndex === null) return <div className={`verdict-row ${varTone(verdict)}`}>{body}</div>;
 
   return (
-    <button type="button" className={`verdict-row ${verdict}`} onClick={() => onCite(turnIndex)}>
+    <button type="button" className={`verdict-row ${varTone(verdict)}`} onClick={() => onCite(turnIndex)}>
       {body}
     </button>
   );
@@ -161,11 +163,26 @@ export function CallDetailPage({ id }: { id: number }) {
               </span>
               <span className="metric-note">as the platform labelled it</span>
             </div>
+            {/* Two columns, not one "failed" count. Saying a value wrong and never
+                saying it are different mistakes with different remedies, and rolling
+                them together read as "2 failed" on a call where every value the
+                agent actually spoke was correct — the same conflation the score
+                itself dropped. Counted here from the verdicts rather than the stored
+                `variables_failed`, which is their sum. */}
             <div className="metric">
-              <span className="metric-label">Variables failed</span>
+              <span className="metric-label">Wrong</span>
               <span className="metric-value figure">
-                {num(data.variables_failed)} <span className="metric-note">of {data.variables_checked}</span>
+                {num(data.variables.filter((v) => v.verdict === "wrong").length)}
               </span>
+              <span className="metric-note">said, but not the customer's value</span>
+            </div>
+            <div className="metric">
+              <span className="metric-label">Not spoken</span>
+              <span className="metric-value figure">
+                {num(data.variables.filter((v) => v.verdict === "missed").length)}{" "}
+                <span className="metric-note">of {data.variables_checked} required</span>
+              </span>
+              <span className="metric-note">no value to be accurate about</span>
             </div>
             <div className="metric">
               <span className="metric-label">Reg no</span>

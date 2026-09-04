@@ -165,7 +165,9 @@ export function CallListPage({
                     <th scope="col" className="num">Score</th>
                     <th scope="col">Verdict</th>
                     <th scope="col">Disposition</th>
-                    <th scope="col" className="num">Vars failed</th>
+                    {/* "Failed" was wrong: most of this count is silence, not error.
+                        The list has only the sum; the call page splits it. */}
+                    <th scope="col" className="num">Missed or wrong</th>
                     <th scope="col">Verfication Error</th>
                   </tr>
                 </thead>

@@ -4,6 +4,16 @@ export type Verdict = "pass" | "warn" | "fail";
 /** A call with no transcript is not a failure — it was never audited. */
 export type CallVerdict = Verdict | "no_transcript";
 
+/**
+ * What the engine says about one value — a different vocabulary from a call's
+ * verdict, which is why calling it `Verdict` printed blank pills.
+ *
+ * `missed` is silence and `n/a` is a value that was never injected: neither is
+ * scored, but only the first is the agent's omission. `not_reached` means the
+ * call ended before that value was due.
+ */
+export type VariableVerdict = "ok" | "missed" | "wrong" | "n/a" | "not_reached";
+
 export interface Health {
   ok: boolean;
   model: string;
@@ -140,7 +150,7 @@ export interface VariableCheck {
   expected_raw: string;
   expected_spoken: string | null;
   spoken: boolean;
-  verdict: Verdict;
+  verdict: VariableVerdict;
   /** Index into `transcript`. The link that makes a verdict checkable. */
   turn_index: number | null;
   evidence: string | null;

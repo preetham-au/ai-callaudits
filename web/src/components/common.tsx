@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { AlertTriangle } from "lucide-react";
-import type { CallVerdict } from "../api/types";
+import type { CallVerdict, VariableVerdict } from "../api/types";
 
 export type Tone = "plain" | "yellow" | "pink" | "sage" | "sky" | "lilac";
 
@@ -66,6 +66,32 @@ const VERDICT_LABEL: Record<CallVerdict, string> = {
 
 export function VerdictPill({ verdict }: { verdict: CallVerdict }) {
   return <span className={`pill ${verdict}`}>{VERDICT_LABEL[verdict]}</span>;
+}
+
+/**
+ * A variable's verdict is not a call's verdict, and was never displayable.
+ *
+ * The engine says ok/missed/wrong/n-a/not_reached; this map was pass/warn/fail,
+ * so every variable pill rendered its label as `undefined` (blank) and its row
+ * carried a class no stylesheet matches. Rather than five new colours, each one
+ * borrows the tone it means: a wrong value reads like a failure, silence like a
+ * warning, and the two "nothing to judge" cases like an unaudited call.
+ */
+const VAR_VERDICT: Record<string, { label: string; tone: string }> = {
+  ok: { label: "Correct", tone: "pass" },
+  wrong: { label: "Wrong", tone: "fail" },
+  missed: { label: "Not spoken", tone: "warn" },
+  "n/a": { label: "Not injected", tone: "no_transcript" },
+  not_reached: { label: "Call ended first", tone: "no_transcript" },
+};
+
+/** Falls back to the raw word: an unknown verdict must still be readable. */
+export function varTone(verdict: string): string {
+  return VAR_VERDICT[verdict]?.tone ?? "no_transcript";
+}
+
+export function VariablePill({ verdict }: { verdict: VariableVerdict }) {
+  return <span className={`pill ${varTone(verdict)}`}>{VAR_VERDICT[verdict]?.label ?? verdict}</span>;
 }
 
 /**
