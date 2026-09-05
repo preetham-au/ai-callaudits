@@ -102,11 +102,18 @@ def test_disposition_comes_from_the_reasoning_sub():
         # Non-engine source writes prose, which must not parse into a sub.
         {"lead_stage_computed": "telephony_failed",
          "lead_stage_reasoning": "Telephony provider failed before customer connection."},
+        # Pre-cutover era (before 31 Aug 2026): the sub sat in `computed` under a
+        # `sub_` prefix and the reasoning carried no `sub=` to find. This repo
+        # audits across the cutover, so both eras have to land on one label or the
+        # same outcome is counted twice under two names.
+        {"lead_stage_computed": "sub_did_not_pick",
+         "lead_stage_reasoning": "group=NOT_CONTACTED decision=AUTO_APPLY conf=0.98"},
+        {"lead_stage_computed": "sub_Hung_Up", "lead_stage_reasoning": None},
         {"lead_stage_computed": None, "lead_stage_reasoning": None},
     ])
     assert [r["disposition"] for r in rows] == [
         "did_not_pick", "did_not_pick", "voicemail_ivr",
-        "contacted", "telephony_failed", None]
+        "contacted", "telephony_failed", "did_not_pick", "hung_up", None]
     assert rows[0]["disposition_group"] == "NOT_CONTACTED"
     assert rows[0]["disposition_decision"] == "AUTO_APPLY"
     assert rows[0]["disposition_conf"] == 0.98

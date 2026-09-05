@@ -175,8 +175,17 @@ def _clean(rows: list[dict]) -> list[dict]:
         r.update(_parse_reasoning(r.get("lead_stage_reasoning")))
         # Subs are written in mixed case (`did_not_pick` next to `Voicemail_IVR`),
         # so they are folded to one case or the same outcome counts as two.
-        sub = r.get("disposition_sub")
-        r["disposition"] = sub.lower() if sub else r.get("lead_stage_computed")
+        #
+        # The `sub_` strip is a platform naming cutover, and the fallback arm is
+        # where it bites. Until 30 Aug 2026 the engine wrote the sub straight into
+        # lead_stage_computed and prefixed it -- `sub_did_not_pick`, `sub_hung_up`
+        # -- and left the reasoning with no `sub=` for _parse_reasoning to find, so
+        # every row from before that date lands here and keeps the prefix. This repo
+        # audits 27 Aug -> 4 Sep, which straddles the cutover, so the same outcome
+        # reads under two names within one run. Same strip as the dashboard
+        # (server/src/db/syncSql.ts) and the reports repo.
+        sub = r.get("disposition_sub") or r.get("lead_stage_computed") or ""
+        r["disposition"] = re.sub(r"^sub_", "", sub.lower()) or None
     return rows
 
 
