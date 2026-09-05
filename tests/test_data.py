@@ -114,6 +114,28 @@ def test_disposition_comes_from_the_reasoning_sub():
     assert rows[4]["disposition_group"] is None
 
 
+def test_a_day_is_bucketed_on_scheduled_time():
+    """Which day a call belongs to, and it has been wrong twice.
+
+    `created_at` is when the batch was queued, hours before anyone is dialled:
+    on 3 Sep 2026 it filed 1,596 calls under a day they were not placed on, and
+    that was the unexplained gap between this repo's 8,857 and the daily
+    report's 7,167. The dashboard and the reports repo both anchor on
+    `scheduled_time`. The IST shift is on the literal, not the column, or the
+    index is lost.
+    """
+    seen = []
+    try:
+        D.run_native_sql = lambda sql, timeout=300: seen.append(sql) or []
+        D.fetch_day("2026-09-03")
+        where = seen[0].split("WHERE", 1)[1]
+        assert where.count("i.scheduled_time") == 2, "both bounds, or the day is open-ended"
+        assert "i.created_at" not in where, "created_at is the queue instant, not the call"
+        assert where.count("interval '5 hours 30 minutes'") == 2, where
+    finally:
+        D.run_native_sql = REAL_RUN
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

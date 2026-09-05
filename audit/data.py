@@ -200,13 +200,27 @@ def _call_start(ended, duration_s):
 
 
 def fetch_day(date: str) -> list[dict]:
-    # An audit day is an IST day. The column is naive UTC, so the window is
-    # shifted rather than the column converted -- `created_at >= x` can use the
-    # index, `created_at AT TIME ZONE ... >= x` cannot.
+    # An audit day is an IST day anchored on `scheduled_time` -- when the dialler
+    # was asked to place the call.
+    #
+    # NOT `created_at`, which is when the platform queued the batch, and which
+    # `_call_start` below already refuses as a call time for the same reason: a
+    # whole batch shares one instant, hours before anyone is dialled. Measured
+    # outlet-wide on 3 Sep 2026, of the 8,857 rows created_at filed under that
+    # day, 1,596 were dialled on the 4th and 4 more between four and ten days
+    # later, while only 11 arrived from an earlier day. That is the gap between
+    # this repo's 8,857 for the date and the daily report's 7,167, which nobody
+    # could reconcile. The dashboard (server/src/db/syncSql.ts) and the reports
+    # repo both anchor on scheduled_time, so all three now agree on which day a
+    # call belongs to.
+    #
+    # The column is naive UTC, so the window is shifted rather than the column
+    # converted -- `scheduled_time >= x` can use the index,
+    # `scheduled_time AT TIME ZONE ... >= x` cannot.
     return _clean(_paged(
         f"i.outlet_id = {OUTLET_ID} "
-        f"AND i.created_at >= '{date}'::timestamp - interval '5 hours 30 minutes' "
-        f"AND i.created_at <  '{date}'::date + 1 - interval '5 hours 30 minutes'"))
+        f"AND i.scheduled_time >= '{date}'::timestamp - interval '5 hours 30 minutes' "
+        f"AND i.scheduled_time <  '{date}'::date + 1 - interval '5 hours 30 minutes'"))
 
 
 def fetch_ids(ids: list[int]) -> list[dict]:
